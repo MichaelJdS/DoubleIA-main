@@ -338,11 +338,18 @@ def bayes_prob(wins, n, alpha=1.5):
 
 def wilson_lower(wins, n, z=1.96):
     """Limite inferior do intervalo de Wilson — conservador e justo."""
-    if n == 0: return 0.0
+    if n == 0:
+        return 0.0
     p = wins / n
     denom = 1 + z**2 / n
     center = p + z**2 / (2 * n)
-    spread = z * math.sqrt((p*(1-p) + z**2/(4*n)) / n)
+    variance = (p * (1 - p) + z**2 / (4 * n)) / n
+    if variance < 0:
+        variance = 0.0
+    try:
+        spread = z * math.sqrt(variance)
+    except ValueError:
+        spread = 0.0
     return max(0.0, (center - spread) / denom)
 
 def kelly_fraction(prob, frac=0.20):
@@ -563,7 +570,11 @@ def mine_local_strategies(colors):
         if m < MINER_MIN_MATCHES: continue
         for alvo in (1, 2):
             w = d[alvo]
-            wl = wilson_lower(w, m)   # Wilson em vez de Bayes puro
+            try:
+                wl = wilson_lower(w, m)   # Wilson em vez de Bayes puro
+            except Exception as e:
+                log.debug("Minerador: falha wilson_lower para m=%s, w=%s: %s", m, w, e)
+                continue
             if wl >= MINER_MIN_BAYES:
                 txt = "-".join(cs(c) for c in seq)
                 strats.append({
