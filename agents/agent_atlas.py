@@ -37,22 +37,21 @@ def _ctw_update(tree, context, outcome):
     # Garantir que a chave do nó seja uma tupla (hashable).
     # Aceita listas/tuplas e também tentará converter elementos não-hashable
     # (ex.: dicts internos) para representações hashable.
-    try:
-        if isinstance(context, tuple):
-            node_key = context
-        else:
-            node_key = tuple(context)
-    except TypeError:
-        # Caso algum elemento do contexto não seja diretamente hashable
-        # (por exemplo um dict), convertemos cada elemento para uma
-        # representação estável e hashable: tupla de items ordenados.
-        safe = []
-        for e in context:
-            if isinstance(e, dict):
-                safe.append(tuple(sorted(e.items())))
-            else:
-                safe.append(e)
-        node_key = tuple(safe)
+    # Função utilitária recursiva para transformar qualquer elemento em algo hashable
+    def _make_hashable(x):
+        if isinstance(x, dict):
+            return tuple((k, _make_hashable(v)) for k, v in sorted(x.items()))
+        if isinstance(x, list):
+            return tuple(_make_hashable(v) for v in x)
+        if isinstance(x, tuple):
+            return tuple(_make_hashable(v) for v in x)
+        return x
+
+    # Normaliza todo o contexto para uma tupla de elementos hashable
+    if isinstance(context, tuple):
+        node_key = tuple(_make_hashable(e) for e in context)
+    else:
+        node_key = tuple(_make_hashable(e) for e in context)
 
     if node_key not in tree:
         tree[node_key] = {1: 0, 2: 0, "total": 0}
