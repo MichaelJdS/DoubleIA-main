@@ -1,483 +1,579 @@
 <!DOCTYPE html>
-<html lang="pt-BR" data-theme="dark">
+<html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Leviathan Dashboard v1.2</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    :root {
-      --bg: #0b1020;
-      --bg2: #121933;
-      --panel: rgba(18, 25, 51, 0.72);
-      --panel-2: rgba(26, 35, 68, 0.78);
-      --border: rgba(255,255,255,.08);
-      --text: #eef2ff;
-      --muted: #9aa6d1;
-      --soft: #7c89b6;
-      --green: #23c55e;
-      --red: #ef4444;
-      --yellow: #f59e0b;
-      --blue: #60a5fa;
-      --whiteball: #f8fafc;
-      --shadow: 0 20px 60px rgba(0,0,0,.35);
-      --radius: 22px;
-    }
-    * { box-sizing: border-box; }
-    html, body { margin:0; padding:0; background: radial-gradient(circle at top, #172348 0%, #0b1020 50%, #070b16 100%); color:var(--text); font-family:Inter,system-ui,sans-serif; }
-    body { min-height:100vh; }
-    .wrap { max-width: 1550px; margin: 0 auto; padding: 24px; }
-    .topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:22px; flex-wrap:wrap; }
-    .brand { display:flex; align-items:center; gap:14px; }
-    .logo {
-      width:50px; height:50px; border-radius:16px;
-      background: linear-gradient(135deg,#60a5fa,#8b5cf6 55%,#22c55e);
-      box-shadow: 0 10px 30px rgba(96,165,250,.25);
-      display:grid; place-items:center; font-weight:800; color:white; font-size:20px;
-    }
-    h1 { margin:0; font-size: clamp(22px, 3vw, 34px); }
-    .sub { color:var(--muted); font-size:14px; margin-top:4px; }
-    .actions { display:flex; gap:10px; flex-wrap:wrap; }
-    button, select, input {
-      border:none; outline:none; color:var(--text);
-      background: var(--panel-2); border:1px solid var(--border);
-      border-radius: 14px; padding: 11px 14px; font-weight:600;
-    }
-    button { cursor:pointer; transition:.2s ease; }
-    button:hover { transform: translateY(-1px); filter: brightness(1.06); }
-    .btn-primary { background: linear-gradient(135deg,#2563eb,#4f46e5); }
-    .btn-danger { background: linear-gradient(135deg,#dc2626,#b91c1c); }
-    .grid-kpis {
-      display:grid; gap:16px;
-      grid-template-columns: repeat(6, minmax(0,1fr));
-      margin-bottom:18px;
-    }
-    .card {
-      background: var(--panel);
-      backdrop-filter: blur(12px);
-      border:1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding:18px;
-    }
-    .kpi .label { color:var(--muted); font-size:13px; margin-bottom:8px; }
-    .kpi .value { font-size: clamp(20px,2.2vw,32px); font-weight:800; }
-    .kpi .mini { margin-top:8px; color:var(--soft); font-size:12px; }
-    .content {
-      display:grid; gap:16px;
-      grid-template-columns: 1.35fr .95fr;
-      margin-bottom:16px;
-    }
-    .stack { display:grid; gap:16px; }
-    .section-title {
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-      margin-bottom:14px;
-    }
-    .section-title h2 { margin:0; font-size:18px; }
-    .pill {
-      padding:6px 10px; border-radius:999px; font-size:12px; font-weight:700;
-      background:rgba(255,255,255,.06); color:var(--muted); border:1px solid var(--border);
-    }
-    .tape { display:flex; flex-wrap:wrap; gap:10px; }
-    .ball {
-      width:42px; height:42px; border-radius:50%; display:grid; place-items:center;
-      font-weight:800; font-size:13px; border:1px solid rgba(255,255,255,.12);
-      box-shadow: inset 0 0 12px rgba(255,255,255,.08), 0 8px 20px rgba(0,0,0,.25);
-    }
-    .c-red { background: radial-gradient(circle at 30% 30%, #ff7b7b, #b91c1c); }
-    .c-black { background: radial-gradient(circle at 30% 30%, #59637d, #111827); }
-    .c-white { background: radial-gradient(circle at 30% 30%, #ffffff, #cbd5e1); color:#111827; }
-    .signal-box { display:grid; gap:12px; grid-template-columns: repeat(3, 1fr); }
-    .signal-box { display:grid; gap:12px; grid-template-columns: repeat(3, 1fr); }
-    .signal-option {
-      border-radius:18px; padding:16px; border:1px solid var(--border);
-      background:rgba(255,255,255,.04);
-    }
-    .signal-option .name { color:var(--muted); font-size:13px; }
-    .signal-option .pct { font-size:28px; font-weight:800; margin-top:8px; }
-    .main-signal {
-      margin-top:14px; border-radius:18px; padding:18px;
-      background: linear-gradient(135deg, rgba(37,99,235,.18), rgba(79,70,229,.18));
-      border:1px solid rgba(96,165,250,.25);
-    }
-    .signal-action { font-size:22px; font-weight:800; margin-bottom:8px; }
-    .reason { color:var(--muted); line-height:1.5; }
-    .split2 { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
-    .kv { display:grid; gap:10px; }
-    .kv .row { display:flex; justify-content:space-between; gap:10px; font-size:14px; border-bottom:1px solid rgba(255,255,255,.05); padding-bottom:8px; }
-    .kv .row span:first-child { color:var(--muted); }
-    table { width:100%; border-collapse:collapse; }
-    th, td { text-align:left; padding:10px 8px; border-bottom:1px solid rgba(255,255,255,.05); font-size:13px; }
-    th { color:var(--muted); font-weight:600; }
-    .status-dot {
-      width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:8px;
-      background:#64748b;
-    }
-    .online { background:#22c55e; box-shadow:0 0 16px rgba(34,197,94,.65); }
-    .offline { background:#ef4444; box-shadow:0 0 16px rgba(239,68,68,.65); }
-    .bar-wrap { height:10px; border-radius:999px; background:rgba(255,255,255,.06); overflow:hidden; margin-top:8px; }
-    .bar { height:100%; border-radius:999px; background:linear-gradient(90deg,#22c55e,#3b82f6); }
-    .rank-item, .vote-item {
-      display:flex; align-items:center; justify-content:space-between; gap:12px;
-      padding:12px 0; border-bottom:1px solid rgba(255,255,255,.05);
-    }
-    .seq { color:var(--muted); font-size:13px; }
-    .score { font-weight:800; }
-    .footer-note { margin-top:12px; color:var(--soft); font-size:12px; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    @media (max-width: 1200px) {
-      .grid-kpis { grid-template-columns: repeat(3, minmax(0,1fr)); }
-      .content { grid-template-columns: 1fr; }
-    }
-    @media (max-width: 720px) {
-      .grid-kpis { grid-template-columns: repeat(2, minmax(0,1fr)); }
-      .signal-box, .split2 { grid-template-columns: 1fr; }
-      .wrap { padding: 14px; }
-      .card { padding:14px; border-radius:18px; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DoubleIA — MoE Dashboard</title>
+<style>
+  :root {
+    --bg:#0d0d0d; --surface:#1a1a1a; --surface2:#222; --border:#2a2a2a;
+    --red:#e8003d; --green:#2ecc71; --yellow:#f39c12; --blue:#3498db;
+    --text:#e0e0e0; --text-dim:#888;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;min-height:100vh;}
+
+  .header{background:#111;border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:16px;}
+  .logo{color:var(--red);font-size:22px;font-weight:800;}
+  .logo span{color:#fff;}
+  .badge-moe{background:linear-gradient(135deg,#6c3483,#2980b9);color:#fff;font-size:11px;padding:3px 10px;border-radius:20px;font-weight:700;letter-spacing:1px;}
+  .header-right{margin-left:auto;display:flex;gap:12px;align-items:center;}
+  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--red);transition:background .3s;}
+  .status-text{font-size:12px;color:var(--text-dim);}
+
+  /* OVERLAY */
+  #overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;}
+  #overlay.hidden{display:none;}
+  .spinner{width:44px;height:44px;border:4px solid var(--border);border-top-color:var(--red);border-radius:50%;animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #overlayMsg{color:#fff;font-size:18px;font-weight:700;}
+  #overlaySub{color:var(--text-dim);font-size:12px;}
+
+  .main-grid{display:grid;grid-template-columns:1fr 340px;gap:16px;padding:16px;max-width:1400px;margin:0 auto;}
+  @media(max-width:900px){.main-grid{grid-template-columns:1fr;}}
+  .col{display:flex;flex-direction:column;gap:16px;}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;}
+  .card-title{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-dim);margin-bottom:14px;font-weight:600;}
+
+  /* RODA */
+  .wheel-area{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;display:flex;gap:24px;align-items:center;}
+  .wheel-container{width:160px;height:160px;flex-shrink:0;position:relative;}
+  .wheel{width:100%;height:100%;border-radius:50%;background:conic-gradient(#e8003d 0deg 180deg,#222 180deg 340deg,#f1f1f1 340deg 360deg);animation:spin 3s linear infinite;box-shadow:0 0 24px rgba(232,0,61,.25);}
+  .wheel.stopped{animation:none;}
+  .wheel-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:52px;height:52px;background:var(--bg);border-radius:50%;border:3px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:800;z-index:2;}
+  .wheel-pointer{position:absolute;top:-10px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-top:18px solid #fff;z-index:3;}
+  .game-info{flex:1;}
+  .cdown-label{font-size:11px;color:var(--text-dim);margin-bottom:4px;}
+  .countdown{font-size:50px;font-weight:900;color:#fff;line-height:1;font-variant-numeric:tabular-nums;}
+  .countdown.warn{color:var(--red);animation:pulse .5s ease-in-out infinite alternate;}
+  @keyframes pulse{from{opacity:1}to{opacity:.4}}
+  .round-id{font-size:11px;color:var(--text-dim);margin-top:6px;}
+  .regime-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--surface2);border:1px solid var(--border);margin-top:10px;}
+  .regime-bar-outer{width:100%;height:4px;background:var(--border);border-radius:2px;margin-top:6px;overflow:hidden;}
+  .regime-bar-fill{height:100%;background:linear-gradient(90deg,var(--blue),var(--red));transition:width .5s;}
+
+  /* STATUS BAR */
+  .status-bar{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 14px;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;}
+  .si{display:flex;gap:4px;align-items:center;}
+  .si b{color:var(--text);}
+
+  /* HISTÓRICO */
+  .hist-strip{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;}
+  .hist-title{font-size:11px;color:var(--text-dim);margin-bottom:10px;letter-spacing:1px;text-transform:uppercase;}
+  .hist-balls{display:flex;gap:5px;flex-wrap:wrap;}
+  .ball{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;border:2px solid transparent;transition:transform .1s;cursor:default;}
+  .ball:hover{transform:scale(1.15);}
+  .ball.red{background:var(--red);color:#fff;border-color:#ff4d6d;}
+  .ball.black{background:#2a2a2a;color:#aaa;border-color:#444;}
+  .ball.white{background:#ddd;color:#111;border-color:#bbb;}
+  .ball.new{animation:pop .35s ease;}
+  @keyframes pop{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+
+  /* SINAL */
+  .signal-card{border-radius:12px;padding:20px;text-align:center;border:2px solid var(--border);background:var(--surface);transition:all .3s;}
+  .signal-card.s-red{border-color:var(--red);background:rgba(232,0,61,.07);}
+  .signal-card.s-black{border-color:#555;background:rgba(80,80,80,.07);}
+  .signal-card.s-white{border-color:#bbb;background:rgba(220,220,220,.05);}
+  .signal-card.s-gale{border-color:var(--yellow);background:rgba(243,156,18,.06);}
+  .signal-card.s-wait{border-color:var(--yellow);background:rgba(243,156,18,.04);}
+  .signal-card.s-block{border-color:#c0392b;background:rgba(192,57,43,.06);}
+  .sig-label{font-size:11px;text-transform:uppercase;letter-spacing:2px;color:var(--text-dim);margin-bottom:6px;}
+  .sig-action{font-size:26px;font-weight:900;margin-bottom:4px;}
+  .sig-action.a-enter{color:#fff;}
+  .sig-action.a-gale{color:var(--yellow);}
+  .sig-action.a-wait{color:var(--yellow);}
+  .sig-action.a-block{color:#e74c3c;}
+  .sig-ball{width:54px;height:54px;border-radius:50%;margin:10px auto;display:flex;align-items:center;justify-content:center;font-size:22px;}
+  .sig-ball.red{background:var(--red);box-shadow:0 0 18px rgba(232,0,61,.6);}
+  .sig-ball.black{background:#333;box-shadow:0 0 18px rgba(100,100,100,.4);}
+  .sig-ball.white{background:#ddd;box-shadow:0 0 18px rgba(220,220,220,.4);}
+  .sig-ball.none{background:var(--border);}
+  .sig-edge{font-size:34px;font-weight:900;color:#fff;}
+  .sig-edge-lbl{font-size:11px;color:var(--text-dim);}
+  .sig-kelly{margin-top:8px;font-size:13px;color:var(--green);font-weight:600;}
+  .sig-reason{margin-top:10px;font-size:11px;color:var(--text-dim);line-height:1.5;padding:0 6px;}
+
+  /* PROBS */
+  .prob-bars{display:flex;flex-direction:column;gap:8px;}
+  .prob-row{display:flex;align-items:center;gap:8px;}
+  .prob-name{width:22px;font-size:15px;}
+  .prob-outer{flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden;}
+  .prob-inner{height:100%;border-radius:4px;transition:width .5s;}
+  .prob-inner.red{background:var(--red);}
+  .prob-inner.black{background:#777;}
+  .prob-inner.white{background:#ccc;}
+  .prob-pct{width:36px;font-size:12px;font-weight:600;text-align:right;}
+
+  /* EXPERTS */
+  .exp-row{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);transition:border-color .3s;margin-bottom:8px;}
+  .exp-row.a-red{border-color:var(--red);}
+  .exp-row.a-black{border-color:#666;}
+  .exp-row.a-white{border-color:#bbb;}
+  .exp-icon{font-size:18px;width:26px;text-align:center;}
+  .exp-info{flex:1;}
+  .exp-name{font-size:12px;font-weight:700;}
+  .exp-subs{font-size:10px;color:var(--text-dim);margin-top:2px;}
+  .exp-bar{width:90px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
+  .exp-fill{height:100%;border-radius:3px;transition:width .5s;}
+  .exp-fill.red{background:var(--red);}
+  .exp-fill.black{background:#888;}
+  .exp-fill.white{background:#ccc;}
+  .exp-pct{font-size:12px;font-weight:700;width:34px;text-align:right;}
+
+  /* GATE */
+  .gate-title{font-size:10px;color:var(--text-dim);margin:12px 0 8px;text-transform:uppercase;letter-spacing:1px;}
+  .gate-bars{display:flex;gap:8px;}
+  .gate-wrap{flex:1;text-align:center;}
+  .gate-label{font-size:10px;color:var(--text-dim);margin-bottom:4px;}
+  .gate-outer{height:56px;background:var(--border);border-radius:4px;overflow:hidden;display:flex;align-items:flex-end;}
+  .gate-inner{width:100%;border-radius:4px;transition:height .5s;}
+  .gate-inner.red{background:var(--red);}
+  .gate-inner.black{background:#777;}
+  .gate-inner.white{background:#ccc;}
+  .gate-val{font-size:11px;font-weight:700;margin-top:4px;}
+
+  /* CL */
+  .cl-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;}
+  .cl-lbl{font-size:11px;color:var(--text-dim);}
+  .cl-val{font-size:11px;font-weight:600;}
+  .cl-val.ok{color:var(--green);}
+  .cl-val.drift{color:var(--yellow);}
+  .dist-bars{display:flex;gap:8px;margin-top:8px;}
+  .dist-wrap{flex:1;text-align:center;}
+  .dist-lbl{font-size:9px;color:var(--text-dim);}
+  .dist-outer{height:36px;background:var(--border);border-radius:4px;overflow:hidden;display:flex;align-items:flex-end;margin:3px 0;}
+  .dist-inner{width:100%;transition:height .5s;}
+  .dist-inner.red{background:var(--red);}
+  .dist-inner.black{background:#777;}
+  .dist-inner.white{background:#ccc;}
+  .dist-val{font-size:9px;color:var(--text-dim);}
+
+  /* STATS */
+  .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;}
+  .stat-item{background:var(--surface2);border-radius:8px;padding:10px;text-align:center;border:1px solid var(--border);}
+  .stat-val{font-size:20px;font-weight:800;color:#fff;}
+  .stat-lbl{font-size:10px;color:var(--text-dim);margin-top:2px;text-transform:uppercase;letter-spacing:.5px;}
+
+  /* THRESHOLD */
+  .th-outer{height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-top:6px;}
+  .th-fill{height:100%;background:linear-gradient(90deg,var(--green),var(--yellow),var(--red));transition:width .5s;}
+  .th-labels{display:flex;justify-content:space-between;font-size:9px;color:var(--text-dim);margin-top:3px;}
+
+  /* LLM */
+  .llm-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+  .llm-badge.confirmar{background:rgba(46,204,113,.15);color:var(--green);border:1px solid var(--green);}
+  .llm-badge.vetar{background:rgba(231,76,60,.15);color:#e74c3c;border:1px solid #e74c3c;}
+  .llm-badge.reduzir{background:rgba(243,156,18,.15);color:var(--yellow);border:1px solid var(--yellow);}
+  .llm-badge.disabled{background:rgba(100,100,100,.15);color:var(--text-dim);border:1px solid var(--border);}
+
+  .footer-bar{background:var(--surface);border-top:1px solid var(--border);padding:8px 24px;display:flex;gap:24px;flex-wrap:wrap;font-size:11px;color:var(--text-dim);align-items:center;}
+  .footer-bar b{color:var(--text);}
+</style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="topbar">
-      <div class="brand">
-        <div class="logo">L</div>
-        <div>
-          <h1>Leviathan Dashboard</h1>
-          <div class="sub">Painel operacional em tempo real do coletor + analisador</div>
+
+<!-- OVERLAY conectando -->
+<div id="overlay">
+  <div class="spinner"></div>
+  <div id="overlayMsg">Conectando ao sistema...</div>
+  <div id="overlaySub">Aguardando coletor.py em localhost:8765</div>
+</div>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="logo">double<span>IA</span></div>
+  <div class="badge-moe">MoE v2.0</div>
+  <div class="header-right">
+    <div class="status-dot" id="statusDot"></div>
+    <div class="status-text" id="statusText">Conectando...</div>
+  </div>
+</div>
+
+<div class="main-grid">
+
+  <!-- ESQUERDA -->
+  <div class="col">
+
+    <div class="wheel-area">
+      <div class="wheel-container">
+        <div class="wheel-pointer"></div>
+        <div class="wheel" id="wheel">
+          <div class="wheel-center" id="lastRoll">–</div>
         </div>
       </div>
-      <div class="actions">
-        <select id="modeSelect">
-          <option value="intelligent">Modo Intelligent</option>
-          <option value="standard">Modo Standard</option>
-        </select>
-        <select id="galesSelect">
-          <option value="0">Gales: 0</option>
-          <option value="1">Gales: 1</option>
-          <option value="2">Gales: 2</option>
-        </select>
-        <button class="btn-primary" id="applyConfigBtn">Aplicar</button>
-        <button class="btn-danger" id="resetStatsBtn">Resetar W/L</button>
-      </div>
-    </div>
-
-    <div class="grid-kpis">
-      <div class="card kpi"><div class="label">Volume DB</div><div class="value" id="kpiTotal">0</div><div class="mini">Rounds brutos coletados</div></div>
-      <div class="card kpi"><div class="label">Conexão WS</div><div class="value" id="kpiWs">OFF</div><div class="mini" id="kpiWsMini">Sem eventos</div></div>
-      <div class="card kpi"><div class="label">Threshold Dinâmico</div><div class="value" id="kpiThreshold">0.70</div><div class="mini">Usado na decisão atual</div></div>
-      <div class="card kpi"><div class="label">Kelly</div><div class="value" id="kpiKelly">0.00%</div><div class="mini">Gestão de risco sugerida</div></div>
-      <div class="card kpi"><div class="label">White Hazard</div><div class="value" id="kpiWhiteHazard">0.00%</div><div class="mini">Risco estatístico de branco</div></div>
-      <div class="card kpi"><div class="label">Regime</div><div class="value" id="kpiRegime">—</div><div class="mini" id="kpiRegimeStrength">Força: 0</div></div>
-    </div>
-
-    <div class="content">
-      <div class="stack">
-        <div class="card">
-          <div class="section-title"><h2>Tape Reading</h2><span class="pill" id="statusBadge">Conectando...</span></div>
-          <div class="tape" id="tape"></div>
-        </div>
-
-        <div class="card">
-          <div class="section-title"><h2>Decisão Dinâmica</h2><span class="pill" id="signalModePill">LEVIATHAN</span></div>
-          <div class="signal-box">
-            <div class="signal-option"><div class="name">Vermelho</div><div class="pct" id="probRed">0%</div></div>
-            <div class="signal-option"><div class="name">Preto</div><div class="pct" id="probBlack">0%</div></div>
-            <div class="signal-option"><div class="name">Branco</div><div class="pct" id="probWhite">0%</div></div>
-          </div>
-          <div class="main-signal">
-            <div class="signal-action" id="signalAction">⏸ Aguardando análise...</div>
-            <div class="reason" id="signalReason">O sistema ainda não produziu um snapshot válido.</div>
-          </div>
-        </div>
-
-        <div class="split2">
-          <div class="card">
-            <div class="section-title"><h2>Meta do Leviathan</h2><span class="pill">Engine</span></div>
-            <div class="kv" id="leviathanMeta"></div>
-          </div>
-          <div class="card">
-            <div class="section-title"><h2>Feature Pack</h2><span class="pill">Snapshot</span></div>
-            <div class="kv" id="featurePack"></div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="section-title"><h2>Histórico de Edge</h2><span class="pill">Últimos snapshots</span></div>
-          <canvas id="edgeChart" height="95"></canvas>
-        </div>
-      </div>
-
-      <div class="stack">
-        <div class="card">
-          <div class="section-title"><h2>Ranking Dinâmico</h2><span class="pill">Auto-mineração</span></div>
-          <div id="ranking"></div>
-        </div>
-
-        <div class="card">
-          <div class="section-title"><h2>Votos dos Experts</h2><span class="pill">Consensus</span></div>
-          <div id="votes"></div>
-        </div>
-
-        <div class="card">
-          <div class="section-title"><h2>Placar W/L</h2><span class="pill">Motor</span></div>
-          <div class="kv" id="scoreboard"></div>
-        </div>
-
-        <div class="card">
-          <div class="section-title"><h2>Audit Trail</h2><span class="pill">Histórico</span></div>
-          <div style="overflow:auto;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Ação</th>
-                  <th>Cor</th>
-                  <th>Conf.</th>
-                  <th>Threshold</th>
-                  <th>Razão</th>
-                </tr>
-              </thead>
-              <tbody id="auditBody"></tbody>
-            </table>
-          </div>
-          <div class="footer-note">O audit trail é alimentado via snapshots do analisador.</div>
+      <div class="game-info">
+        <div class="cdown-label">PRÓXIMO ROUND EM</div>
+        <div class="countdown" id="countdown">–:––</div>
+        <div class="round-id" id="roundId">Round #–</div>
+        <div id="regimeBadge" class="regime-badge">⚖️ Carregando...</div>
+        <div class="regime-bar-outer">
+          <div class="regime-bar-fill" id="regimeBar" style="width:50%"></div>
         </div>
       </div>
     </div>
+
+    <div class="status-bar">
+      <div class="si">🗄️ Banco: <b id="sbRounds">–</b> rounds</div>
+      <div class="si">📡 WS: <b id="sbWS">–</b></div>
+      <div class="si">🔍 Miner: <b id="sbMiner">–</b></div>
+      <div class="si">📚 Catálogo: <b id="sbCatalog">–</b></div>
+      <div class="si" style="margin-left:auto;">⏱️ <b id="sbTime">–</b></div>
+    </div>
+
+    <div class="hist-strip">
+      <div class="hist-title">Giros Anteriores</div>
+      <div class="hist-balls" id="histBalls">
+        <span style="color:var(--text-dim);font-size:12px;">Carregando...</span>
+      </div>
+    </div>
+
+    <div class="signal-card s-wait" id="sigCard">
+      <div class="sig-label">Sinal MoE</div>
+      <div class="sig-action a-wait" id="sigAction">AGUARDANDO</div>
+      <div class="sig-ball none" id="sigBall">–</div>
+      <div class="sig-edge" id="sigEdge">–.–%</div>
+      <div class="sig-edge-lbl">EDGE</div>
+      <div class="sig-kelly" id="sigKelly"></div>
+      <div class="sig-reason" id="sigReason">Inicializando...</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Probabilidades</div>
+      <div class="prob-bars">
+        <div class="prob-row">
+          <div class="prob-name">🔴</div>
+          <div class="prob-outer"><div class="prob-inner red" id="pRed" style="width:46%"></div></div>
+          <div class="prob-pct" id="pRedT">46%</div>
+        </div>
+        <div class="prob-row">
+          <div class="prob-name">⚫</div>
+          <div class="prob-outer"><div class="prob-inner black" id="pBlack" style="width:46%"></div></div>
+          <div class="prob-pct" id="pBlackT">46%</div>
+        </div>
+        <div class="prob-row">
+          <div class="prob-name">⚪</div>
+          <div class="prob-outer"><div class="prob-inner white" id="pWhite" style="width:7%"></div></div>
+          <div class="prob-pct" id="pWhiteT">7%</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
-  <script>
-    const API = 'http://localhost:8765';
-    const $ = (id) => document.getElementById(id);
+  <!-- DIREITA -->
+  <div class="col">
 
-    const edgeCtx = $('edgeChart').getContext('2d');
-    const edgeChart = new Chart(edgeCtx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [
-          { label: 'Confiança', data: [], borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,.18)', tension: .35, fill: true },
-          { label: 'Threshold', data: [], borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.05)', tension: .35, fill: false },
-        ]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { labels: { color: '#cbd5e1' } } },
-        scales: {
-          x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } },
-          y: { ticks: { color: '#94a3b8', callback: (v)=> (v*100).toFixed(0)+'%' }, grid: { color: 'rgba(255,255,255,.05)' }, min:0, max:1 }
-        }
+    <div class="card">
+      <div class="card-title">Mixture of Experts</div>
+      <div class="exp-row" id="expRed">
+        <div class="exp-icon">🔴</div>
+        <div class="exp-info"><div class="exp-name">RED Expert</div><div class="exp-subs">markov · miner · catalog · cl</div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+          <div class="exp-bar"><div class="exp-fill red" id="eRedBar" style="width:0%"></div></div>
+          <div class="exp-pct" id="eRedPct">–</div>
+        </div>
+      </div>
+      <div class="exp-row" id="expBlack">
+        <div class="exp-icon">⚫</div>
+        <div class="exp-info"><div class="exp-name">BLACK Expert</div><div class="exp-subs">markov · miner · catalog · cl</div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+          <div class="exp-bar"><div class="exp-fill black" id="eBlackBar" style="width:0%"></div></div>
+          <div class="exp-pct" id="eBlackPct">–</div>
+        </div>
+      </div>
+      <div class="exp-row" id="expWhite">
+        <div class="exp-icon">⚪</div>
+        <div class="exp-info"><div class="exp-name">WHITE Expert</div><div class="exp-subs">poisson · gap · post · cl</div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+          <div class="exp-bar"><div class="exp-fill white" id="eWhiteBar" style="width:0%"></div></div>
+          <div class="exp-pct" id="eWhitePct">–</div>
+        </div>
+      </div>
+      <div class="gate-title">Gating Network</div>
+      <div class="gate-bars">
+        <div class="gate-wrap">
+          <div class="gate-label">🔴 R</div>
+          <div class="gate-outer"><div class="gate-inner red" id="gR" style="height:70%"></div></div>
+          <div class="gate-val" id="gRV">0.70</div>
+        </div>
+        <div class="gate-wrap">
+          <div class="gate-label">⚫ B</div>
+          <div class="gate-outer"><div class="gate-inner black" id="gB" style="height:70%"></div></div>
+          <div class="gate-val" id="gBV">0.70</div>
+        </div>
+        <div class="gate-wrap">
+          <div class="gate-label">⚪ W</div>
+          <div class="gate-outer"><div class="gate-inner white" id="gW" style="height:40%"></div></div>
+          <div class="gate-val" id="gWV">0.40</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🧬 Continual Learner</div>
+      <div class="cl-row"><div class="cl-lbl">Drift</div><div class="cl-val ok" id="clDrift">✅ Estável</div></div>
+      <div class="cl-row"><div class="cl-lbl">Magnitude</div><div class="cl-val" id="clMag">0.000</div></div>
+      <div class="cl-row"><div class="cl-lbl">Último Relearn</div><div class="cl-val" id="clRL">–</div></div>
+      <div class="gate-title" style="margin-top:4px;">Distribuição (500)</div>
+      <div class="dist-bars">
+        <div class="dist-wrap">
+          <div class="dist-lbl">🔴</div>
+          <div class="dist-outer"><div class="dist-inner red" id="d5R" style="height:46%"></div></div>
+          <div class="dist-val" id="d5RV">46%</div>
+        </div>
+        <div class="dist-wrap">
+          <div class="dist-lbl">⚫</div>
+          <div class="dist-outer"><div class="dist-inner black" id="d5B" style="height:46%"></div></div>
+          <div class="dist-val" id="d5BV">46%</div>
+        </div>
+        <div class="dist-wrap">
+          <div class="dist-lbl">⚪</div>
+          <div class="dist-outer"><div class="dist-inner white" id="d5W" style="height:7%"></div></div>
+          <div class="dist-val" id="d5WV">7%</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Sistema</div>
+      <div class="cl-row"><div class="cl-lbl">Threshold</div><div class="cl-val" id="thVal">68%</div></div>
+      <div class="th-outer"><div class="th-fill" id="thBar" style="width:35%"></div></div>
+      <div class="th-labels"><span>58%</span><span>71%</span><span>85%</span></div>
+      <div class="cl-row" style="margin-top:10px;"><div class="cl-lbl">LLM</div><div id="llmBadge" class="llm-badge disabled">– Desativado</div></div>
+      <div class="cl-row"><div class="cl-lbl">Win Rate</div><div class="cl-val ok" id="sysWR">–</div></div>
+      <div class="stats-grid">
+        <div class="stat-item"><div class="stat-val" id="stWins">–</div><div class="stat-lbl">Wins</div></div>
+        <div class="stat-item"><div class="stat-val" id="stAcc">–</div><div class="stat-lbl">Acurácia</div></div>
+        <div class="stat-item"><div class="stat-val" id="stTotal">–</div><div class="stat-lbl">Sinais</div></div>
+        <div class="stat-item"><div class="stat-val" id="stRounds">–</div><div class="stat-lbl">Rounds</div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="footer-bar">
+  <span>LEVIATHAN <b>MoE v2.0</b></span>
+  <span>API: <b>localhost:8765</b></span>
+  <span>Regime: <b id="fRegime">–</b></span>
+  <span>CL: <b id="fCL">–</b></span>
+  <span style="margin-left:auto;" id="fTime">–</span>
+</div>
+
+<script>
+const BASE = "http://localhost:8765";
+const POLL = 2500;
+let fails = 0, cdTimer = null, cdVal = 0, lastRid = null;
+
+const $ = id => document.getElementById(id);
+const cc = c => c===1?"red":c===2?"black":c===0?"white":"none";
+const ce = c => c===1?"🔴":c===2?"⚫":c===0?"⚪":"–";
+const cl = c => c===1?"V":c===2?"P":c===0?"B":"?";
+
+function setOnline(ok) {
+  $("statusDot").style.background = ok ? "#2ecc71" : "#e74c3c";
+  $("statusDot").style.boxShadow  = ok ? "0 0 8px #2ecc71" : "0 0 8px #e74c3c";
+  $("statusText").textContent = ok ? "Online" : "Offline";
+  const ov = $("overlay");
+  if (ok) {
+    ov.classList.add("hidden");
+  } else {
+    ov.classList.remove("hidden");
+    $("overlaySub").textContent = `Falhas: ${fails} — verifique se coletor.py está rodando`;
+  }
+}
+
+function startCD(s) {
+  if (cdTimer) clearInterval(cdTimer);
+  cdVal = Math.max(0, Math.round(s));
+  renderCD();
+  cdTimer = setInterval(() => {
+    cdVal = Math.max(0, cdVal - 1);
+    renderCD();
+    cdVal <= 5 ? $("countdown").classList.add("warn") : $("countdown").classList.remove("warn");
+  }, 1000);
+}
+function renderCD() {
+  const m = Math.floor(cdVal/60), s = cdVal%60;
+  $("countdown").textContent = m + ":" + String(s).padStart(2,"0");
+}
+
+function renderHist(recent) {
+  const c = $("histBalls");
+  if (!recent?.length) { c.innerHTML='<span style="color:var(--text-dim);font-size:12px;">Sem dados</span>'; return; }
+  const list = [...recent].reverse().slice(-30);
+  c.innerHTML = "";
+  list.forEach((r,i) => {
+    const b = document.createElement("div");
+    b.className = `ball ${cc(r.color)}${i===list.length-1?" new":""}`;
+    b.title = `Roll:${r.roll}`;
+    b.textContent = cl(r.color);
+    c.appendChild(b);
+  });
+}
+
+function renderSig(sig, probs) {
+  const act = (sig.action||"wait").toLowerCase();
+  const col = sig.color, conf = sig.confidence||0;
+
+  const card = $("sigCard");
+  card.className = "signal-card";
+  if (act==="enter")              card.classList.add(`s-${cc(col)}`);
+  else if (act.startsWith("gale"))card.classList.add("s-gale");
+  else if (act==="block")         card.classList.add("s-block");
+  else                            card.classList.add("s-wait");
+
+  const aEl = $("sigAction");
+  const labels = {enter:"ENTRAR",gale_1:"GALE 1",gale_2:"GALE 2",wait:"AGUARDAR",block:"BLOQUEADO"};
+  aEl.textContent = labels[act]||act.toUpperCase();
+  aEl.className = "sig-action";
+  if (act==="enter")               aEl.classList.add("a-enter");
+  else if (act.startsWith("gale")) aEl.classList.add("a-gale");
+  else if (act==="block")          aEl.classList.add("a-block");
+  else                             aEl.classList.add("a-wait");
+
+  $("sigBall").className = `sig-ball ${cc(col)}`;
+  $("sigBall").textContent = ce(col);
+  $("sigEdge").textContent = (conf*100).toFixed(1)+"%";
+  $("sigKelly").textContent = (sig.kelly||0)>0 ? `Kelly: ${sig.kelly}%` : "";
+  $("sigReason").textContent = sig.reason||"–";
+
+  const r=Math.round((probs.red||0)*100), b=Math.round((probs.black||0)*100), w=Math.round((probs.white||0)*100);
+  $("pRed").style.width=r+"%"; $("pRedT").textContent=r+"%";
+  $("pBlack").style.width=b+"%"; $("pBlackT").textContent=b+"%";
+  $("pWhite").style.width=w+"%"; $("pWhiteT").textContent=w+"%";
+}
+
+function renderExperts(feat) {
+  const rc=Math.round((feat.expert_red_conf||0)*100);
+  const bc=Math.round((feat.expert_black_conf||0)*100);
+  const wc=Math.round((feat.expert_white_conf||0)*100);
+  $("eRedBar").style.width=rc+"%"; $("eRedPct").textContent=rc+"%";
+  $("eBlackBar").style.width=bc+"%"; $("eBlackPct").textContent=bc+"%";
+  $("eWhiteBar").style.width=wc+"%"; $("eWhitePct").textContent=wc+"%";
+
+  ["expRed","expBlack","expWhite"].forEach(id=>$(id).className="exp-row");
+  const ex=feat.expert_used||"";
+  if(ex==="red")   $("expRed").classList.add("a-red");
+  if(ex==="black") $("expBlack").classList.add("a-black");
+  if(ex==="white") $("expWhite").classList.add("a-white");
+
+  const gr=Math.round((feat.gate_red||0)*100);
+  const gb=Math.round((feat.gate_black||0)*100);
+  const gw=Math.round((feat.gate_white||0)*100);
+  $("gR").style.height=gr+"%"; $("gRV").textContent=(feat.gate_red||0).toFixed(2);
+  $("gB").style.height=gb+"%"; $("gBV").textContent=(feat.gate_black||0).toFixed(2);
+  $("gW").style.height=gw+"%"; $("gWV").textContent=(feat.gate_white||0).toFixed(2);
+}
+
+function renderCL(feat) {
+  const d=feat.cl_drift;
+  $("clDrift").textContent=d?"⚠️ DRIFT!":"✅ Estável";
+  $("clDrift").className="cl-val "+(d?"drift":"ok");
+  $("clMag").textContent=(feat.cl_drift_mag||0).toFixed(4);
+  $("clRL").textContent=feat.cl_last_relearn||"–";
+  $("fCL").textContent=feat.cl_last_relearn||"–";
+}
+
+function renderSys(feat, sc) {
+  const th=feat.threshold_used||0.68;
+  $("thVal").textContent=(th*100).toFixed(1)+"%";
+  $("thBar").style.width=Math.max(0,Math.min(100,((th-0.58)/0.27)*100))+"%";
+  $("sbMiner").textContent=feat.miner_count||0;
+  $("sbCatalog").textContent=feat.catalog_count||0;
+
+  const llmM={confirmar:{c:"confirmar",t:"✅ Confirmado"},vetar:{c:"vetar",t:"🚫 Vetado"},
+    reduzir:{c:"reduzir",t:"⚡ Reduzido"},disabled:{c:"disabled",t:"– Desativado"},
+    error:{c:"disabled",t:"⚠️ Erro"}};
+  const lm=llmM[feat.llm_status||"disabled"]||llmM.disabled;
+  $("llmBadge").className=`llm-badge ${lm.c}`;
+  $("llmBadge").textContent=lm.t;
+
+  // Scoreboard — testa moe_v2 ou leviathan
+  const lev=(sc&&(sc.moe_v2||sc.leviathan||sc.intelligent))||{};
+  const wins=lev.wins||0, losses=lev.losses||0, tot=wins+losses;
+  const acc=tot>0?Math.round(wins/tot*100):0;
+  $("stWins").textContent=wins; $("stTotal").textContent=tot;
+  $("stAcc").textContent=acc+"%"; $("sysWR").textContent=acc+"%";
+}
+
+async function poll() {
+  try {
+    const [sR, aR] = await Promise.all([
+      fetch(`${BASE}/stats`,    {signal:AbortSignal.timeout(4000)}),
+      fetch(`${BASE}/analysis`, {signal:AbortSignal.timeout(4000)}),
+    ]);
+    if (!sR.ok||!aR.ok) throw new Error("API erro");
+    const stats = await sR.json();
+    const anal  = await aR.json();
+
+    fails = 0;
+    setOnline(true);
+    const now = new Date().toLocaleTimeString("pt-BR");
+    $("sbTime").textContent = $("fTime").textContent = now;
+    $("sbRounds").textContent = $("stRounds").textContent = stats.total||0;
+    $("sbWS").textContent = stats.ws_connected ? "🟢 Online" : "🔴 Offline";
+
+    renderHist(stats.recent||[]);
+
+    // Último round + countdown
+    const last = (stats.recent||[])[0];
+    if (last) {
+      if (last.round_id !== lastRid) {
+        lastRid = last.round_id;
+        $("lastRoll").textContent = last.roll ?? "–";
+        $("roundId").textContent  = "Round #" + String(last.round_id||"–").slice(-8);
+        const w = $("wheel");
+        w.classList.add("stopped");
+        setTimeout(()=>w.classList.remove("stopped"), 3000);
       }
-    });
-
-    async function api(path, options={}) {
-      const res = await fetch(API + path, options);
-      return res.json();
-    }
-
-    function pct(v) {
-      return ((Number(v)||0) * 100).toFixed(1) + '%';
-    }
-
-    function colorLabel(c) {
-      if (c === 1 || c === 'red') return '🔴 Vermelho';
-      if (c === 2 || c === 'black') return '⚫ Preto';
-      if (c === 0 || c === 'white') return '⚪ Branco';
-      return '—';
-    }
-
-    function buildTape(recent=[]) {
-      const box = $('tape');
-      box.innerHTML = '';
-      recent.slice(0, 20).forEach(item => {
-        const el = document.createElement('div');
-        const cls = item.color === 1 ? 'c-red' : item.color === 2 ? 'c-black' : 'c-white';
-        el.className = 'ball ' + cls;
-        el.textContent = item.roll;
-        box.appendChild(el);
-      });
-    }
-
-    function renderKV(containerId, obj, formatter=null) {
-      const root = $(containerId);
-      root.innerHTML = '';
-      const entries = Object.entries(obj || {});
-      if (!entries.length) {
-        root.innerHTML = '<div class="row"><span>Status</span><span>Sem dados</span></div>';
-        return;
-      }
-      entries.forEach(([k,v]) => {
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.innerHTML = `<span>${k}</span><span class="mono">${formatter ? formatter(k,v) : v}</span>`;
-        root.appendChild(row);
-      });
-    }
-
-    function renderRanking(items=[]) {
-      const root = $('ranking');
-      root.innerHTML = '';
-      if (!items.length) {
-        root.innerHTML = '<div class="rank-item"><div><div>Nenhum padrão ativo</div><div class="seq">Aguardando mineração</div></div><div class="score">—</div></div>';
-        return;
-      }
-      items.slice(0,8).forEach(item => {
-        const seq = (item.seq || []).map(x => x === 1 ? 'V' : x === 2 ? 'P' : 'B').join('-');
-        const wrap = document.createElement('div');
-        wrap.className = 'rank-item';
-        wrap.innerHTML = `
-          <div>
-            <div>${item.nome || 'Padrão'}</div>
-            <div class="seq">${seq} → ${colorLabel(item.alvo)} | ${item.matches} matches</div>
-            <div class="bar-wrap"><div class="bar" style="width:${Math.min(item.acc||0,100)}%"></div></div>
-          </div>
-          <div class="score">${(item.acc||0).toFixed(1)}%</div>
-        `;
-        root.appendChild(wrap);
-      });
-    }
-
-    function renderVotes(votes=[]) {
-      const root = $('votes');
-      root.innerHTML = '';
-      if (!votes.length) {
-        root.innerHTML = '<div class="vote-item"><div><div>Sem votos</div><div class="seq">O snapshot atual não trouxe experts.</div></div><div class="score">—</div></div>';
-        return;
-      }
-      votes.forEach(v => {
-        const score = Number(v.score ?? v.conf ?? 0);
-        const el = document.createElement('div');
-        el.className = 'vote-item';
-        el.innerHTML = `
-          <div>
-            <div>${v.name || v.expert || 'Expert'}</div>
-            <div class="seq">Voto: ${colorLabel(v.vote ?? v.color)} | Peso: ${Number(v.weight ?? 1).toFixed(2)}</div>
-            <div class="bar-wrap"><div class="bar" style="width:${Math.min(score*100,100)}%"></div></div>
-          </div>
-          <div class="score">${(score*100).toFixed(1)}%</div>
-        `;
-        root.appendChild(el);
-      });
-    }
-
-    function renderScoreboard(sb={}) {
-      const engine = sb.leviathan || sb.intelligent || sb.standard || {wins:0,losses:0,ties:0,win_rate:0};
-      renderKV('scoreboard', {
-        wins: engine.wins ?? 0,
-        losses: engine.losses ?? 0,
-        ties: engine.ties ?? 0,
-        win_rate: (engine.win_rate ?? 0) + '%'
-      });
-    }
-
-    function renderAudit(history=[]) {
-      const body = $('auditBody');
-      body.innerHTML = '';
-      if (!history.length) {
-        body.innerHTML = '<tr><td colspan="6">Sem snapshots ainda.</td></tr>';
-        return;
-      }
-      history.slice(0,20).forEach(item => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${(item.ts || '').replace('T',' ').slice(0,19)}</td>
-          <td>${item.action || 'wait'}</td>
-          <td>${colorLabel(item.signal_color)}</td>
-          <td>${((item.confidence||0)*100).toFixed(1)}%</td>
-          <td>${((item.threshold||0)*100).toFixed(1)}%</td>
-          <td>${item.reason || ''}</td>
-        `;
-        body.appendChild(tr);
-      });
-
-      edgeChart.data.labels = history.slice(0,20).reverse().map((_,i)=> String(i+1));
-      edgeChart.data.datasets[0].data = history.slice(0,20).reverse().map(h => Number(h.confidence || 0));
-      edgeChart.data.datasets[1].data = history.slice(0,20).reverse().map(h => Number(h.threshold || 0));
-      edgeChart.update();
-    }
-
-    async function applyConfig() {
-      const mode = $('modeSelect').value;
-      const gales = Number($('galesSelect').value);
-      await api('/api/mode', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ mode }) });
-      await api('/api/gales', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ gales }) });
-      await refreshAll();
-    }
-
-    async function resetStats() {
-      await api('/api/reset_stats', { method:'POST' });
-      await refreshAll();
-    }
-
-    async function refreshAll() {
+      // Estimar countdown pelo created_at (rounds ~120s)
       try {
-        const [stats, analysis, ranking, history, meta] = await Promise.all([
-          api('/stats'),
-          api('/analysis'),
-          api('/strategy_ranking'),
-          api('/history'),
-          api('/leviathan_meta').catch(()=>({}))
-        ]);
-
-        $('kpiTotal').textContent = stats.total || 0;
-        $('kpiWs').textContent = stats.ws_connected ? 'ON' : 'OFF';
-        $('kpiWsMini').innerHTML = `<span class="status-dot ${stats.ws_connected ? 'online' : 'offline'}"></span>${stats.ws_events || 0} eventos WS`;
-        $('statusBadge').textContent = stats.ws_connected ? 'WebSocket Online' : 'Modo fallback';
-        $('modeSelect').value = stats.mode || 'intelligent';
-        $('galesSelect').value = String(stats.max_gales ?? 0);
-
-        buildTape(stats.recent || []);
-        renderRanking(ranking.ranking || []);
-        renderScoreboard(stats.scoreboard || {});
-        renderKV('leviathanMeta', meta || stats.leviathan || {});
-
-        if (analysis && analysis.status === 'ok') {
-          $('probRed').textContent = pct(analysis.probabilities?.red);
-          $('probBlack').textContent = pct(analysis.probabilities?.black);
-          $('probWhite').textContent = pct(analysis.probabilities?.white);
-          $('signalAction').textContent = `${analysis.signal?.action === 'enter' ? '🎯 ENTRADA' : analysis.signal?.action === 'block' ? '🛑 BLOQUEIO' : '⏸ AGUARDAR'} — ${colorLabel(analysis.signal?.color)}`;
-          $('signalReason').textContent = analysis.signal?.reason || 'Sem justificativa.';
-          $('kpiThreshold').textContent = Number(analysis.signal?.threshold_used ?? .70).toFixed(2);
-          
-          // FIX v1.2: Exibição direta do Kelly sem dupla multiplicação percentual
-          $('kpiKelly').textContent = (Number(analysis.signal?.kelly || 0)).toFixed(2) + '%';
-          
-          $('kpiWhiteHazard').textContent = ((Number(analysis.white_hazard || 0))*100).toFixed(2) + '%';
-          $('kpiRegime').textContent = analysis.regime?.label || analysis.regime?.name || '—';
-          $('kpiRegimeStrength').textContent = 'Força: ' + Number(analysis.regime?.strength || 0).toFixed(3);
-          renderVotes(analysis.votes || []);
-          renderKV('featurePack', analysis.features || {}, (k,v)=> typeof v === 'number' ? Number(v).toFixed(4) : String(v));
-        } else {
-          $('signalAction').textContent = '⏸ Aguardando análise...';
-          $('signalReason').textContent = analysis?.message || 'Snapshot ainda indisponível.';
-        }
-
-        renderAudit(history.history || []);
-      } catch (err) {
-        $('signalReason').textContent = 'Falha ao consultar API: ' + err.message;
-      }
+        const elapsed = (Date.now() - new Date(last.created_at).getTime()) / 1000;
+        const remaining = Math.max(0, 120 - (elapsed % 120));
+        if (Math.abs(remaining - cdVal) > 4) startCD(remaining);
+      } catch(e){}
     }
 
-    function connectSSE() {
-      try {
-        const es = new EventSource(API + '/events');
-        es.addEventListener('new_result', () => refreshAll());
-        es.onerror = () => setTimeout(connectSSE, 5000);
-      } catch {
-        setTimeout(connectSSE, 5000);
-      }
+    // Análise
+    if (anal.status==="ok"||anal.signal) {
+      const sig   = anal.signal||{};
+      const probs = anal.probabilities||{};
+      const reg   = anal.regime||{};
+      const feat  = anal.features||{};
+
+      renderSig({action:sig.action,color:sig.color,confidence:sig.confidence,kelly:sig.kelly,reason:sig.reason}, probs);
+
+      const rl = reg.label||reg.name||"⚖️ Equilibrado";
+      $("regimeBadge").textContent = rl;
+      $("regimeBar").style.width   = Math.round((reg.strength||0.5)*100)+"%";
+      $("fRegime").textContent = rl;
+
+      renderExperts(feat);
+      renderCL(feat);
+      renderSys(feat, stats.scoreboard||{});
     }
+  } catch(e) {
+    fails++;
+    setOnline(false);
+  }
+}
 
-    $('applyConfigBtn').addEventListener('click', applyConfig);
-    $('resetStatsBtn').addEventListener('click', resetStats);
+// SSE para atualizações instantâneas quando chegar novo round
+function connectSSE() {
+  try {
+    const es = new EventSource(`${BASE}/events`);
+    es.addEventListener("new_result", () => poll());
+    es.onerror = () => { es.close(); setTimeout(connectSSE, 5000); };
+  } catch(e) { setTimeout(connectSSE, 5000); }
+}
 
-    refreshAll();
-    setInterval(refreshAll, 5000);
-    connectSSE();
-  </script>
+// INIT
+setOnline(false);
+poll();
+setInterval(poll, POLL);
+connectSSE();
+</script>
 </body>
 </html>

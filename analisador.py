@@ -1,31 +1,31 @@
 """=============================================================================
-BLAZE DOUBLE AI — LEVIATHAN ENGINE v1.3 (NEURAL CORE UPGRADE)
-Motor Adaptativo de Auto-Evolução com Ensemble Voting, Regime Detection,
-Live Performance Memory, Catálogo Integrado, Adaptive Thresholds, Auto-Mute,
-e agora com CAMADA NEURAL (Backpropagation em Tempo Real).
+BLAZE DOUBLE AI — LEVIATHAN ENGINE v2.0 (MIXTURE OF EXPERTS + CONTINUAL LEARNING)
+Arquitetura MoE com Especialistas por Cor, Gating Network, Concept Drift Detection
+e Aprendizado Contínuo relendo o banco de dados completo.
 =============================================================================
 
 ARQUITETURA:
-  ┌─────────────────────────────────────────────────────────────────┐
-  │                    LEVIATHAN ENGINE v1.3                        │
-  │                                                                 │
-  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
-  │  │  REGIME      │  │  ENSEMBLE    │  │  NEURAL META-LEARNER │  │
-  │  │  DETECTOR    │→ │  VOTER       │→ │  (Pesos dinâmicos)   │  │
-  │  │              │  │  (5 módulos) │  │  Retropropagação     │  │
-  │  └──────────────┘  └──────────────┘  └──────────────────────┘  │
-  │         ↓                ↓                      ↓               │
-  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
-  │  │  CATALOG     │  │  LIVE PERF   │  │  GROQ ANALISTA       │  │
-  │  │  INTEGRATOR  │  │  MEMORY      │  │  (Context-Rich)      │  │
-  │  │  (optimizer) │  │  (per padrão)│  │                      │  │
-  │  └──────────────┘  └──────────────┘  └──────────────────────┘  │
-  │                              ↓                                  │
-  │                    ┌──────────────────┐                         │
-  │                    │   AUTO-MUTE &    │                         │
-  │                    │   KELLY SMART    │                         │
-  │                    └──────────────────┘                         │
-  └─────────────────────────────────────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                  LEVIATHAN ENGINE v2.0 — MoE                       │
+  │                                                                     │
+  │  ┌──────────────┐   ┌─────────────────────────────────────────┐    │
+  │  │   GATING     │   │         CONTINUAL LEARNER               │    │
+  │  │   NETWORK    │   │  • Relê DB completo (cada 50 rounds)    │    │
+  │  │  (Router)    │   │  • Concept Drift Detection              │    │
+  │  └──────────────┘   │  • Janelas: 500 / 2000 / full DB       │    │
+  │         ↓           └─────────────────────────────────────────┘    │
+  │  ┌───────────────────────────────────────┐                         │
+  │  │         MIXTURE OF EXPERTS            │                         │
+  │  │  ┌──────────┐ ┌──────────┐ ┌───────┐ │                         │
+  │  │  │🔴 RED    │ │⚫ BLACK  │ │⚪WHITE│ │                         │
+  │  │  │ Expert   │ │ Expert   │ │ Expert│ │                         │
+  │  │  └──────────┘ └──────────┘ └───────┘ │                         │
+  │  └───────────────────────────────────────┘                         │
+  │         ↓                                                           │
+  │  ┌─────────────────────────────────────────────────────────────┐   │
+  │  │   META-LEARNER NEURAL (pesos por Expert × Cor × Regime)    │   │
+  │  └─────────────────────────────────────────────────────────────┘   │
+  └─────────────────────────────────────────────────────────────────────┘
 """
 
 import json
@@ -44,11 +44,9 @@ import requests
 
 try:
     from notificador import notificar_sinal
-
     TELEGRAM_OK = True
 except Exception:
     TELEGRAM_OK = False
-
     def notificar_sinal(*a, **k):
         return False
 
@@ -59,8 +57,8 @@ LOG_FILE = "leviathan.log"
 LOOP_INTERVAL = 2
 MIN_HISTORY = 80
 
-THRESHOLD_MIN = 0.60
-THRESHOLD_START = 0.70
+THRESHOLD_MIN = 0.58
+THRESHOLD_START = 0.68
 THRESHOLD_MAX = 0.85
 THRESHOLD_STEP_UP = 0.02
 THRESHOLD_STEP_DOWN = 0.01
@@ -76,6 +74,11 @@ MINER_INTERVAL = 25
 MINER_MIN_MATCHES = 6
 MINER_MIN_BAYES = 0.63
 
+# Continual Learning
+CL_RELEARN_EVERY = 50       # rounds novos para re-aprender
+CL_DRIFT_WINDOW = 100       # janela para drift detection
+CL_DRIFT_THRESHOLD = 0.12   # diferença de distribuição que dispara re-learn
+
 DEFAULT_GROQ_MODELS = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
@@ -85,9 +88,29 @@ DEFAULT_GROQ_MODELS = [
 # ─────────────────────────── ESTADO GLOBAL ───────────────────────────────────
 _miner_lock = threading.Lock()
 _catalog_lock = threading.Lock()
+_cl_lock = threading.Lock()
+_neural_weights_lock = threading.Lock()
 
 GLOBAL_MINED_STRATS = []
 GLOBAL_CATALOG_STRATS = []
+
+# Estado do Continual Learner
+CL_STATE = {
+    "last_db_count": 0,
+    "color_dist_full": {0: 0.07, 1: 0.465, 2: 0.465},
+    "color_dist_500": {0: 0.07, 1: 0.465, 2: 0.465},
+    "color_dist_2000": {0: 0.07, 1: 0.465, 2: 0.465},
+    "drift_detected": False,
+    "drift_magnitude": 0.0,
+    "last_relearn_ts": None,
+    "expert_stats": {
+        "red":   {"total": 0, "wins": 0, "by_regime": defaultdict(lambda: {"total": 0, "wins": 0})},
+        "black": {"total": 0, "wins": 0, "by_regime": defaultdict(lambda: {"total": 0, "wins": 0})},
+        "white": {"total": 0, "wins": 0, "by_regime": defaultdict(lambda: {"total": 0, "wins": 0})},
+    },
+    "transition_matrix": {},   # P(cor_atual | cor_anterior)
+    "ngram_cache": {},         # Cache de n-gramas do DB completo
+}
 
 _threshold_state = {
     "value": THRESHOLD_START,
@@ -102,6 +125,16 @@ _threshold_lock = threading.Lock()
 
 _pattern_perf_memory: dict = defaultdict(lambda: deque(maxlen=30))
 _perf_lock = threading.Lock()
+
+_NEURAL_LEARNING_RATE = 0.05
+_DEFAULT_NEURAL_WEIGHTS = {
+    # Pesos por (expert_cor, sub_modulo)
+    "red_miner": 1.0, "red_catalog": 1.2, "red_markov": 0.9,
+    "red_streak": 0.85, "red_cl": 1.1,
+    "black_miner": 1.0, "black_catalog": 1.2, "black_markov": 0.9,
+    "black_streak": 0.85, "black_cl": 1.1,
+    "white_poisson": 1.3, "white_gap": 1.1, "white_post": 1.0, "white_cl": 1.2,
+}
 
 # ─────────────────────────── LOGGING ─────────────────────────────────────────
 logging.basicConfig(
@@ -123,17 +156,15 @@ def _conn():
     return c
 
 
-def _add_column_safe(conn, table: str, column: str, definition: str):
-    """Migration segura: adiciona coluna se ainda não existir. Nunca falha."""
+def _add_column_safe(conn, table, column, definition):
     try:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
         conn.commit()
-        log.info("Migration: coluna '%s' adicionada em '%s'", column, table)
     except Exception:
-        pass  # coluna já existe — ignora silenciosamente
+        pass
 
 
-def get_sys_config(key: str, default=None):
+def get_sys_config(key, default=None):
     try:
         conn = _conn()
         c = conn.cursor()
@@ -145,7 +176,7 @@ def get_sys_config(key: str, default=None):
         return default
 
 
-def set_sys_config(key: str, value: str):
+def set_sys_config(key, value):
     conn = _conn()
     conn.execute(
         "INSERT OR REPLACE INTO system_config (key, value) VALUES (?, ?)",
@@ -155,39 +186,27 @@ def set_sys_config(key: str, value: str):
     conn.close()
 
 
-def get_mode() -> str:
-    return get_sys_config("mode", "intelligent")
+def get_mode():
+    return get_sys_config("mode", "moe")
 
 
-def get_max_gales() -> int:
+def get_max_gales():
     try:
         return int(get_sys_config("max_gales", "0"))
     except Exception:
         return 0
 
 
-def get_groq_models() -> list:
+def get_groq_models():
     custom = os.environ.get("GROQ_MODEL", "").strip()
     if custom:
         return [x.strip() for x in custom.split(",") if x.strip()]
     return DEFAULT_GROQ_MODELS[:]
 
 
-# ─────────────────────────── REDE NEURAL (META-LEARNER) ────────────────────────
-# Os "neurônios" do sistema. Cada módulo possui um peso que é ajustado online
-# usando o gradiente descendente a cada validação de round.
-_neural_weights_lock = threading.Lock()
-_NEURAL_LEARNING_RATE = 0.05
-_DEFAULT_NEURAL_WEIGHTS = {
-    "miner": 1.0,
-    "catalog": 1.2,
-    "markov": 0.8,
-    "streak": 0.9,
-    "white": 1.1
-}
-
-def get_neural_weights() -> dict:
-    weights_json = get_sys_config("neural_weights_v1", "")
+# ─────────────────────────── NEURAL WEIGHTS ──────────────────────────────────
+def get_neural_weights():
+    weights_json = get_sys_config("neural_weights_v2", "")
     if weights_json:
         try:
             return json.loads(weights_json)
@@ -195,28 +214,20 @@ def get_neural_weights() -> dict:
             pass
     return _DEFAULT_NEURAL_WEIGHTS.copy()
 
-def update_neural_weights(module_votes: dict, actual_winner: int):
+
+def update_neural_weights(expert_key: str, won: bool, confidence: float):
     with _neural_weights_lock:
         weights = get_neural_weights()
-        for mod_name, vote_data in module_votes.items():
-            if not vote_data.get("vote"):
-                continue
-            
-            # Se o módulo votou no vencedor, o erro é 0 (positivo). Se não, erro é negativo.
-            error = 1.0 if vote_data["vote"] == actual_winner else -1.0
-            
-            # Ajuste de Gradiente Simplificado
-            adjustment = _NEURAL_LEARNING_RATE * error * vote_data["confidence"]
-            weights[mod_name] = max(0.1, min(3.0, weights[mod_name] + adjustment))
-            
-        set_sys_config("neural_weights_v1", json.dumps(weights))
-        log.info("🧠 Pesos Neurais Atualizados: %s", {k: round(v, 2) for k,v in weights.items()})
+        error = 1.0 if won else -1.0
+        adjustment = _NEURAL_LEARNING_RATE * error * confidence
+        weights[expert_key] = max(0.1, min(3.0, weights.get(expert_key, 1.0) + adjustment))
+        set_sys_config("neural_weights_v2", json.dumps(weights))
+    log.debug("🧠 Neural [%s]: %.3f", expert_key, weights[expert_key])
 
 
-# ─────────────────────────── INICIALIZAÇÃO DAS TABELAS ───────────────────────
+# ─────────────────────────── INIT TABLES ─────────────────────────────────────
 def init_tables():
     conn = _conn()
-
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS analysis_snapshots (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -236,9 +247,9 @@ def init_tables():
         dist_last_white INTEGER,
         features_json   TEXT,
         patterns_json   TEXT,
-        mode_used       TEXT DEFAULT 'leviathan',
+        mode_used       TEXT DEFAULT 'moe_v2',
         votes_json      TEXT DEFAULT '[]',
-        threshold_used  REAL DEFAULT 0.70
+        threshold_used  REAL DEFAULT 0.68
     );
 
     CREATE TABLE IF NOT EXISTS prediction_performance (
@@ -250,53 +261,38 @@ def init_tables():
         actual      INTEGER,
         correct     INTEGER,
         action      TEXT,
-        mode        TEXT DEFAULT 'leviathan',
-        pattern_key TEXT DEFAULT ''
+        mode        TEXT DEFAULT 'moe_v2',
+        pattern_key TEXT DEFAULT '',
+        expert_used TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS leviathan_meta (
         key   TEXT PRIMARY KEY,
         value TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS cl_snapshots (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts          TEXT NOT NULL,
+        db_count    INTEGER,
+        dist_full   TEXT,
+        dist_500    TEXT,
+        dist_2000   TEXT,
+        drift_mag   REAL,
+        expert_stats TEXT
+    );
     """)
     conn.commit()
 
-    _add_column_safe(conn, "analysis_snapshots", "mode_used", "TEXT DEFAULT 'leviathan'")
+    _add_column_safe(conn, "analysis_snapshots", "mode_used", "TEXT DEFAULT 'moe_v2'")
     _add_column_safe(conn, "analysis_snapshots", "votes_json", "TEXT DEFAULT '[]'")
-    _add_column_safe(conn, "analysis_snapshots", "threshold_used", "REAL DEFAULT 0.70")
-    _add_column_safe(conn, "prediction_performance", "snapshot_id", "INTEGER")
-    _add_column_safe(conn, "prediction_performance", "predicted", "INTEGER")
-    _add_column_safe(conn, "prediction_performance", "confidence", "REAL")
-    _add_column_safe(conn, "prediction_performance", "actual", "INTEGER")
-    _add_column_safe(conn, "prediction_performance", "correct", "INTEGER")
-    _add_column_safe(conn, "prediction_performance", "pattern_key", "TEXT DEFAULT ''")
-    
+    _add_column_safe(conn, "analysis_snapshots", "threshold_used", "REAL DEFAULT 0.68")
+    _add_column_safe(conn, "prediction_performance", "expert_used", "TEXT DEFAULT ''")
     conn.close()
-
-    for k, v in {
-        "threshold": str(THRESHOLD_START),
-        "consecutive_loss": "0",
-        "consecutive_win": "0",
-        "mute_until": "0",
-        "mute_wins": "0",
-        "total_signals": "0",
-        "total_wins": "0",
-    }.items():
-        try:
-            conn2 = _conn()
-            conn2.execute(
-                "INSERT OR IGNORE INTO leviathan_meta (key, value) VALUES (?, ?)",
-                (k, v),
-            )
-            conn2.commit()
-            conn2.close()
-        except Exception:
-            pass
-
-    log.info("Tabelas Leviathan verificadas / migradas com sucesso.")
+    log.info("Tabelas MoE v2 verificadas.")
 
 
-def load_meta(key: str, default="0") -> str:
+def load_meta(key, default="0"):
     try:
         conn = _conn()
         c = conn.cursor()
@@ -308,7 +304,7 @@ def load_meta(key: str, default="0") -> str:
         return default
 
 
-def save_meta(key: str, value: str):
+def save_meta(key, value):
     try:
         conn = _conn()
         conn.execute(
@@ -321,74 +317,27 @@ def save_meta(key: str, value: str):
         pass
 
 
-# ─────────────────────────── CARREGAR SEQUÊNCIA ──────────────────────────────
-def load_sequence(limit=4000) -> list:
-    conn = _conn()
-    try:
-        c = conn.cursor()
-        c.execute(
-            """
-            SELECT id, round_id, color, roll, created_at
-            FROM results_raw
-            ORDER BY id DESC
-            LIMIT ?
-        """,
-            (limit,),
-        )
-        rows = c.fetchall()
-        return [
-            {
-                "id": r[0],
-                "round_id": r[1],
-                "color": r[2],
-                "roll": r[3],
-                "created_at": r[4],
-            }
-            for r in reversed(rows)
-        ]
-    finally:
-        conn.close()
-
-
-def get_last_round_id() -> Optional[str]:
-    conn = _conn()
-    c = conn.cursor()
-    c.execute("SELECT round_id FROM results_raw ORDER BY id DESC LIMIT 1")
-    row = c.fetchone()
-    conn.close()
-    return row[0] if row else None
-
-
-def get_last_analyzed_round_id() -> Optional[str]:
-    conn = _conn()
-    c = conn.cursor()
-    c.execute("SELECT last_round_id FROM analysis_snapshots ORDER BY id DESC LIMIT 1")
-    row = c.fetchone()
-    conn.close()
-    return row[0] if row else None
-
-
-# ─────────────────────────── HELPERS MATEMÁTICOS ─────────────────────────────
-def color_short(c) -> str:
+# ─────────────────────────── HELPERS ─────────────────────────────────────────
+def color_short(c):
     return {0: "B", 1: "V", 2: "P"}.get(c, "?")
 
 
-def color_name(c) -> str:
+def color_name(c):
     return {0: "BRANCO", 1: "VERMELHO", 2: "PRETO"}.get(c, "—")
 
 
-def bayes_prob(wins: int, matches: int, alpha=1.5) -> float:
+def bayes_prob(wins, matches, alpha=1.5):
     return (wins + alpha) / (matches + 2 * alpha)
 
 
-def kelly_fraction(prob: float, frac: float = 0.25) -> float:
+def kelly_fraction(prob, frac=0.25):
     if prob <= 0.50:
         return 0.0
     edge = 2.0 * prob - 1.0
     return max(0.0, min(edge * frac, 0.30))
 
 
-def poisson_white_hazard(colors: list) -> dict:
+def poisson_white_hazard(colors):
     gaps = []
     cur = 0
     for c in colors:
@@ -408,15 +357,15 @@ def poisson_white_hazard(colors: list) -> dict:
     }
 
 
-def markov_prob(colors: list, target: int, order: int = 2) -> float:
+def markov_prob(colors, target, order=2):
     nw = [c for c in colors if c != 0]
     if len(nw) < order + 1:
         return 0.465
-    key = tuple(nw[-(order):])
+    key = tuple(nw[-order:])
     counts = defaultdict(int)
     total = 0
     for i in range(len(nw) - order):
-        k = tuple(nw[i : i + order])
+        k = tuple(nw[i:i + order])
         if k == key:
             counts[nw[i + order]] += 1
             total += 1
@@ -425,7 +374,7 @@ def markov_prob(colors: list, target: int, order: int = 2) -> float:
     return (counts[target] + 1) / (total + 2)
 
 
-def entropy_regime(colors: list, window: int = 20) -> float:
+def entropy_regime(colors, window=20):
     recent = [c for c in colors[-window:] if c != 0]
     if len(recent) < 4:
         return 1.0
@@ -437,7 +386,7 @@ def entropy_regime(colors: list, window: int = 20) -> float:
     return round(min(ent / 1.0, 1.0), 4)
 
 
-def streak_info(colors: list) -> dict:
+def streak_info(colors):
     nw = [c for c in colors if c != 0]
     if not nw:
         return {"color": None, "length": 0}
@@ -451,7 +400,7 @@ def streak_info(colors: list) -> dict:
     return {"color": anchor, "length": length}
 
 
-def alternation_ratio(colors: list, window: int = 10) -> float:
+def alternation_ratio(colors, window=10):
     nw = [c for c in colors[-50:] if c != 0][-window:]
     if len(nw) < 2:
         return 0.5
@@ -459,8 +408,43 @@ def alternation_ratio(colors: list, window: int = 10) -> float:
     return flips / (len(nw) - 1)
 
 
+def load_sequence(limit=4000):
+    conn = _conn()
+    try:
+        c = conn.cursor()
+        c.execute(
+            "SELECT id, round_id, color, roll, created_at FROM results_raw ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        rows = c.fetchall()
+        return [
+            {"id": r[0], "round_id": r[1], "color": r[2], "roll": r[3], "created_at": r[4]}
+            for r in reversed(rows)
+        ]
+    finally:
+        conn.close()
+
+
+def get_last_round_id():
+    conn = _conn()
+    c = conn.cursor()
+    c.execute("SELECT round_id FROM results_raw ORDER BY id DESC LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def get_last_analyzed_round_id():
+    conn = _conn()
+    c = conn.cursor()
+    c.execute("SELECT last_round_id FROM analysis_snapshots ORDER BY id DESC LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
 # ─────────────────────────── DETECTOR DE REGIME ──────────────────────────────
-def detect_regime(colors: list) -> dict:
+def detect_regime(colors):
     ent = entropy_regime(colors, 20)
     strk = streak_info(colors)
     alt = alternation_ratio(colors, 12)
@@ -468,78 +452,557 @@ def detect_regime(colors: list) -> dict:
     nw = [c for c in colors if c != 0]
 
     if wh["dist"] >= 18 and wh["hazard"] >= 0.72:
-        return {
-            "name": "white_zone",
-            "label": "⚪ Zona Branca",
-            "strength": wh["hazard"],
-            "data": wh,
-        }
+        return {"name": "white_zone", "label": "⚪ Zona Branca", "strength": wh["hazard"], "data": wh}
     if strk["length"] >= 4:
-        return {
-            "name": "streak_hot",
-            "label": f"🔥 Streak {strk['length']}x",
-            "strength": min(strk["length"] / 8.0, 0.99),
-            "data": strk,
-        }
+        return {"name": "streak_hot", "label": f"🔥 Streak {strk['length']}x",
+                "strength": min(strk["length"] / 8.0, 0.99), "data": strk}
     if alt >= 0.78 and len(nw) >= 6:
-        return {
-            "name": "alternating",
-            "label": "↔️ Alternância",
-            "strength": round(alt, 3),
-            "data": {"alt_ratio": alt},
-        }
+        return {"name": "alternating", "label": "↔️ Alternância",
+                "strength": round(alt, 3), "data": {"alt_ratio": alt}}
     if ent >= 0.88:
-        return {
-            "name": "chaotic",
-            "label": "🌀 Caótico",
-            "strength": round(ent, 3),
-            "data": {"entropy": ent},
-        }
+        return {"name": "chaotic", "label": "🌀 Caótico", "strength": round(ent, 3), "data": {"entropy": ent}}
     return {"name": "balanced", "label": "⚖️ Equilibrado", "strength": 0.5, "data": {}}
 
 
-# ─────────────────────────── LIVE PERFORMANCE MEMORY ─────────────────────────
-def record_pattern_outcome(pattern_key: str, won: bool):
-    with _perf_lock:
-        _pattern_perf_memory[pattern_key].append(won)
+# ─────────────────────────── CONTINUAL LEARNER ────────────────────────────────
+def _compute_color_dist(colors):
+    n = len(colors)
+    if n == 0:
+        return {0: 0.07, 1: 0.465, 2: 0.465}
+    counts = defaultdict(int)
+    for c in colors:
+        counts[c] += 1
+    return {k: round(counts[k] / n, 4) for k in (0, 1, 2)}
 
 
-def get_pattern_weight(pattern_key: str) -> float:
-    with _perf_lock:
-        hist = list(_pattern_perf_memory.get(pattern_key, []))
-    if len(hist) < 3:
-        return 0.5
-    recent = hist[-10:]
-    acc = sum(recent) / len(recent)
-    if acc < 0.40:
-        return 0.1
-    if acc < 0.50:
-        return 0.3
-    if acc < 0.60:
-        return 0.55
-    if acc < 0.70:
-        return 0.75
-    return round(min(acc, 0.99), 3)
+def _compute_transition_matrix(colors):
+    """Calcula P(next | current) para todas as cores incluindo branco."""
+    matrix = defaultdict(lambda: defaultdict(int))
+    for i in range(len(colors) - 1):
+        matrix[colors[i]][colors[i + 1]] += 1
+    result = {}
+    for from_c, to_counts in matrix.items():
+        total = sum(to_counts.values())
+        result[from_c] = {to_c: round(cnt / total, 4) for to_c, cnt in to_counts.items()}
+    return result
 
 
-# ─────────────────────────── CATÁLOGO DO OTIMIZADOR ──────────────────────────
-def load_catalog_strategies() -> list:
+def _compute_ngram_cache(colors, max_len=6):
+    """Computa n-gramas do DB completo para uso pelos experts."""
+    cache = defaultdict(lambda: {1: 0, 2: 0, 0: 0, "total": 0})
+    n = len(colors)
+    for length in range(2, max_len + 1):
+        for i in range(length - 1, n - 1):
+            seq = tuple(colors[i - length + 1: i + 1])
+            next_c = colors[i + 1]
+            cache[seq][next_c] += 1
+            cache[seq]["total"] += 1
+    return dict(cache)
+
+
+def _detect_concept_drift(old_dist, new_dist):
+    """KL Divergence simplificada entre distribuições."""
+    magnitude = sum(
+        abs(new_dist.get(k, 0) - old_dist.get(k, 0)) for k in (0, 1, 2)
+    )
+    return magnitude
+
+
+def continual_learner_thread():
+    """Thread que relê o DB completo periodicamente e re-adapta todos os experts."""
+    global CL_STATE
+    log.info("🧬 Continual Learner iniciado.")
+
+    while True:
+        try:
+            conn = _conn()
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM results_raw")
+            total_count = c.fetchone()[0]
+
+            with _cl_lock:
+                last_count = CL_STATE["last_db_count"]
+
+            # Só re-aprende se tiver N novos rounds OU no primeiro boot
+            if total_count - last_count >= CL_RELEARN_EVERY or last_count == 0:
+                log.info("🧬 Continual Learner: relendo %d rounds do DB...", total_count)
+
+                c.execute("SELECT color FROM results_raw ORDER BY id ASC")
+                all_colors = [r[0] for r in c.fetchall()]
+
+                if len(all_colors) < 100:
+                    conn.close()
+                    time.sleep(15)
+                    continue
+
+                # Distribuições por janela
+                dist_full = _compute_color_dist(all_colors)
+                dist_2000 = _compute_color_dist(all_colors[-2000:])
+                dist_500 = _compute_color_dist(all_colors[-500:])
+
+                # Matriz de transição
+                transition = _compute_transition_matrix(all_colors)
+
+                # N-grama cache (DB completo)
+                ngram = _compute_ngram_cache(all_colors, max_len=6)
+
+                # Concept Drift Detection
+                with _cl_lock:
+                    old_dist = CL_STATE["color_dist_500"].copy()
+
+                drift_mag = _detect_concept_drift(old_dist, dist_500)
+                drift_detected = drift_mag >= CL_DRIFT_THRESHOLD
+
+                if drift_detected:
+                    log.warning(
+                        "⚠️ CONCEPT DRIFT DETECTADO! Magnitude=%.4f — Re-calibrando experts...",
+                        drift_mag
+                    )
+
+                # Estatísticas dos experts por regime (lendo prediction_performance)
+                c.execute("""
+                    SELECT pp.predicted, pp.actual, pp.correct, pp.expert_used,
+                           a.regime
+                    FROM prediction_performance pp
+                    LEFT JOIN analysis_snapshots a ON a.id = pp.snapshot_id
+                    WHERE pp.action IN ('win', 'loss')
+                    ORDER BY pp.id DESC
+                    LIMIT 2000
+                """)
+                perf_rows = c.fetchall()
+
+                expert_stats = {
+                    "red":   {"total": 0, "wins": 0, "by_regime": defaultdict(lambda: {"total": 0, "wins": 0})},
+                    "black": {"total": 0, "wins": 0, "by_regime": defaultdict(lambda: {"total": 0, "wins": 0})},
+                    "white": {"total": 0, "wins": 0, "by_regime": defaultdict(lambda: {"total": 0, "wins": 0})},
+                }
+
+                for predicted, actual, correct, expert_used, regime_label in perf_rows:
+                    exp_key = {1: "red", 2: "black", 0: "white"}.get(predicted, "red")
+                    regime_key = regime_label or "balanced"
+                    expert_stats[exp_key]["total"] += 1
+                    expert_stats[exp_key]["by_regime"][regime_key]["total"] += 1
+                    if correct:
+                        expert_stats[exp_key]["wins"] += 1
+                        expert_stats[exp_key]["by_regime"][regime_key]["wins"] += 1
+
+                # Salvar snapshot CL no DB
+                conn.execute(
+                    """INSERT INTO cl_snapshots
+                       (ts, db_count, dist_full, dist_500, dist_2000, drift_mag, expert_stats)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        datetime.now(timezone.utc).isoformat(),
+                        total_count,
+                        json.dumps(dist_full),
+                        json.dumps(dist_500),
+                        json.dumps(dist_2000),
+                        drift_mag,
+                        json.dumps({
+                            k: {"total": v["total"], "wins": v["wins"]}
+                            for k, v in expert_stats.items()
+                        }),
+                    )
+                )
+                conn.commit()
+
+                # Atualizar estado global
+                with _cl_lock:
+                    CL_STATE["last_db_count"] = total_count
+                    CL_STATE["color_dist_full"] = dist_full
+                    CL_STATE["color_dist_500"] = dist_500
+                    CL_STATE["color_dist_2000"] = dist_2000
+                    CL_STATE["drift_detected"] = drift_detected
+                    CL_STATE["drift_magnitude"] = drift_mag
+                    CL_STATE["last_relearn_ts"] = datetime.now().strftime("%H:%M:%S")
+                    CL_STATE["transition_matrix"] = transition
+                    CL_STATE["ngram_cache"] = ngram
+                    CL_STATE["expert_stats"] = expert_stats
+
+                log.info(
+                    "🧬 CL Completo | Dist500=%s | Drift=%.4f %s | Transições=%d | NGrams=%d",
+                    dist_500, drift_mag,
+                    "⚠️ DRIFT!" if drift_detected else "✅ Estável",
+                    len(transition),
+                    len(ngram),
+                )
+
+            conn.close()
+
+        except Exception as e:
+            log.error("Erro no Continual Learner: %s", e, exc_info=True)
+
+        time.sleep(10)
+
+
+# ─────────────────────────── GATING NETWORK (ROUTER MoE) ─────────────────────
+def gating_network(regime: dict, colors: list) -> dict:
+    """
+    Decide quais experts ativar e com qual peso base,
+    baseado no regime atual e no estado do Continual Learner.
+    Retorna: {"red": float, "black": float, "white": float}
+    """
+    name = regime["name"]
+    strength = regime["strength"]
+    wh = poisson_white_hazard(colors)
+
+    with _cl_lock:
+        dist_500 = CL_STATE["color_dist_500"].copy()
+        drift = CL_STATE["drift_detected"]
+        trans = CL_STATE["transition_matrix"].copy()
+        expert_stats = CL_STATE["expert_stats"]
+
+    # Pesos base por regime
+    weights = {
+        "white_zone":  {"red": 0.2,  "black": 0.2,  "white": 1.0},
+        "streak_hot":  {"red": 0.9,  "black": 0.9,  "white": 0.3},
+        "alternating": {"red": 0.85, "black": 0.85, "white": 0.2},
+        "chaotic":     {"red": 0.6,  "black": 0.6,  "white": 0.4},
+        "balanced":    {"red": 0.8,  "black": 0.8,  "white": 0.5},
+    }.get(name, {"red": 0.7, "black": 0.7, "white": 0.4})
+
+    # Ajuste por distribuição recente (Continual Learner)
+    # Se vermelho está aparecendo muito, o expert vermelho fica menos confiante (mean reversion)
+    red_bias = dist_500.get(1, 0.465)
+    black_bias = dist_500.get(2, 0.465)
+
+    if red_bias > 0.52:
+        weights["red"] *= 0.85
+        weights["black"] *= 1.10
+    elif red_bias < 0.42:
+        weights["red"] *= 1.10
+        weights["black"] *= 0.90
+
+    # Ajuste por performance histórica dos experts (vindo do CL)
+    for color_key, exp_data in expert_stats.items():
+        total = exp_data.get("total", 0)
+        wins = exp_data.get("wins", 0)
+        if total >= 20:
+            acc = wins / total
+            bonus = (acc - 0.50) * 0.4  # ±20% de ajuste
+            weights[color_key] = max(0.1, min(1.5, weights[color_key] + bonus))
+
+    # Se drift detectado, reduz confiança geral e aumenta white (incerteza)
+    if drift:
+        weights["red"] *= 0.80
+        weights["black"] *= 0.80
+        weights["white"] *= 1.20
+
+    # Normalizar para [0, 1]
+    max_w = max(weights.values()) or 1.0
+    return {k: round(v / max_w, 3) for k, v in weights.items()}
+
+
+# ─────────────────────────── EXPERT: RED 🔴 ──────────────────────────────────
+def red_expert(colors: list, regime: dict) -> dict:
+    """Especialista dedicado a prever VERMELHO."""
+    nw = [c for c in colors if c != 0]
+    if len(nw) < 10:
+        return {"confidence": 0.0, "signals": [], "color": 1}
+
+    weights = get_neural_weights()
+    signals = []
+    score = 0.0
+    weight_sum = 0.0
+
+    # Sub-módulo 1: Markov
+    p_red_m1 = markov_prob(nw, 1, order=1)
+    p_red_m2 = markov_prob(nw, 1, order=2)
+    p_red_markov = p_red_m1 * 0.35 + p_red_m2 * 0.65
+    w_markov = weights.get("red_markov", 0.9)
+    score += p_red_markov * w_markov
+    weight_sum += w_markov
+    signals.append({"name": "red_markov", "conf": round(p_red_markov, 3)})
+
+    # Sub-módulo 2: Streak (reversão ou continuação para vermelho)
+    strk = streak_info(nw)
+    w_streak = weights.get("red_streak", 0.85)
+    if strk["color"] == 1 and strk["length"] >= 3:
+        # Streak vermelho — pode continuar
+        cont_prob = bayes_prob(
+            sum(1 for i in range(len(nw) - 1) if nw[i] == 1 and nw[i + 1] == 1),
+            sum(1 for c in nw if c == 1), alpha=1.0
+        )
+        score += cont_prob * w_streak
+        weight_sum += w_streak
+        signals.append({"name": "red_streak_cont", "conf": round(cont_prob, 3)})
+    elif strk["color"] == 2 and strk["length"] >= 3:
+        # Streak preto longo — reversão para vermelho
+        rev_total = sum(1 for i in range(len(nw) - strk["length"])
+                        if all(nw[i + j] == 2 for j in range(strk["length"])) and
+                        i + strk["length"] < len(nw))
+        rev_red = sum(1 for i in range(len(nw) - strk["length"])
+                      if all(nw[i + j] == 2 for j in range(strk["length"])) and
+                      i + strk["length"] < len(nw) and nw[i + strk["length"]] == 1)
+        rev_prob = bayes_prob(rev_red, rev_total) if rev_total > 3 else 0.5
+        score += rev_prob * w_streak
+        weight_sum += w_streak
+        signals.append({"name": "red_streak_rev", "conf": round(rev_prob, 3)})
+
+    # Sub-módulo 3: Miner (n-gramas locais)
+    w_miner = weights.get("red_miner", 1.0)
+    with _miner_lock:
+        best_miner = None
+        for s in GLOBAL_MINED_STRATS:
+            if s["target"] != 1:
+                continue
+            seq = s["seq"]
+            if len(colors) >= len(seq) and tuple(colors[-len(seq):]) == seq:
+                if best_miner is None or s["prob"] > best_miner["prob"]:
+                    best_miner = s
+    if best_miner:
+        score += best_miner["prob"] * w_miner
+        weight_sum += w_miner
+        signals.append({"name": "red_miner", "conf": round(best_miner["prob"], 3)})
+
+    # Sub-módulo 4: Continual Learner (n-grama DB completo)
+    w_cl = weights.get("red_cl", 1.1)
+    with _cl_lock:
+        ngram_cache = CL_STATE["ngram_cache"]
+        trans = CL_STATE["transition_matrix"]
+
+    # Usar matriz de transição do CL
+    last_color = colors[-1] if colors else None
+    if last_color is not None and last_color in trans:
+        cl_prob_red = trans[last_color].get(1, 0.465)
+        score += cl_prob_red * w_cl
+        weight_sum += w_cl
+        signals.append({"name": "red_cl_transition", "conf": round(cl_prob_red, 3)})
+
+    # N-grama do CL para vermelho
+    for length in range(3, 7):
+        if len(colors) >= length:
+            key = tuple(colors[-length:])
+            if key in ngram_cache:
+                entry = ngram_cache[key]
+                total_ng = entry.get("total", 0)
+                red_ng = entry.get(1, 0)
+                if total_ng >= 8:
+                    ng_prob = bayes_prob(red_ng, total_ng)
+                    if ng_prob >= 0.60:
+                        score += ng_prob * w_cl * 0.8
+                        weight_sum += w_cl * 0.8
+                        signals.append({"name": f"red_cl_ngram_{length}", "conf": round(ng_prob, 3)})
+                        break
+
+    # Catalog
+    w_catalog = weights.get("red_catalog", 1.2)
+    with _catalog_lock:
+        best_cat = None
+        for s in GLOBAL_CATALOG_STRATS:
+            if s.get("target") != 1:
+                continue
+            if catalog_strategy_matches(s, colors):
+                if best_cat is None or s.get("wf_acc", 0) > best_cat.get("wf_acc", 0):
+                    best_cat = s
+    if best_cat:
+        cat_conf = best_cat.get("wf_acc", 0.6)
+        score += cat_conf * w_catalog
+        weight_sum += w_catalog
+        signals.append({"name": "red_catalog", "conf": round(cat_conf, 3)})
+
+    if weight_sum == 0:
+        return {"confidence": 0.0, "signals": signals, "color": 1}
+
+    final_conf = min(score / weight_sum, 0.99)
+    return {"confidence": round(final_conf, 4), "signals": signals, "color": 1}
+
+
+# ─────────────────────────── EXPERT: BLACK ⚫ ─────────────────────────────────
+def black_expert(colors: list, regime: dict) -> dict:
+    """Especialista dedicado a prever PRETO."""
+    nw = [c for c in colors if c != 0]
+    if len(nw) < 10:
+        return {"confidence": 0.0, "signals": [], "color": 2}
+
+    weights = get_neural_weights()
+    signals = []
+    score = 0.0
+    weight_sum = 0.0
+
+    # Markov
+    p_black_m1 = markov_prob(nw, 2, order=1)
+    p_black_m2 = markov_prob(nw, 2, order=2)
+    p_black_markov = p_black_m1 * 0.35 + p_black_m2 * 0.65
+    w_markov = weights.get("black_markov", 0.9)
+    score += p_black_markov * w_markov
+    weight_sum += w_markov
+    signals.append({"name": "black_markov", "conf": round(p_black_markov, 3)})
+
+    # Streak
+    strk = streak_info(nw)
+    w_streak = weights.get("black_streak", 0.85)
+    if strk["color"] == 2 and strk["length"] >= 3:
+        cont_prob = bayes_prob(
+            sum(1 for i in range(len(nw) - 1) if nw[i] == 2 and nw[i + 1] == 2),
+            sum(1 for c in nw if c == 2), alpha=1.0
+        )
+        score += cont_prob * w_streak
+        weight_sum += w_streak
+        signals.append({"name": "black_streak_cont", "conf": round(cont_prob, 3)})
+    elif strk["color"] == 1 and strk["length"] >= 3:
+        rev_total = sum(1 for i in range(len(nw) - strk["length"])
+                        if all(nw[i + j] == 1 for j in range(strk["length"])) and
+                        i + strk["length"] < len(nw))
+        rev_black = sum(1 for i in range(len(nw) - strk["length"])
+                        if all(nw[i + j] == 1 for j in range(strk["length"])) and
+                        i + strk["length"] < len(nw) and nw[i + strk["length"]] == 2)
+        rev_prob = bayes_prob(rev_black, rev_total) if rev_total > 3 else 0.5
+        score += rev_prob * w_streak
+        weight_sum += w_streak
+        signals.append({"name": "black_streak_rev", "conf": round(rev_prob, 3)})
+
+    # Miner
+    w_miner = weights.get("black_miner", 1.0)
+    with _miner_lock:
+        best_miner = None
+        for s in GLOBAL_MINED_STRATS:
+            if s["target"] != 2:
+                continue
+            seq = s["seq"]
+            if len(colors) >= len(seq) and tuple(colors[-len(seq):]) == seq:
+                if best_miner is None or s["prob"] > best_miner["prob"]:
+                    best_miner = s
+    if best_miner:
+        score += best_miner["prob"] * w_miner
+        weight_sum += w_miner
+        signals.append({"name": "black_miner", "conf": round(best_miner["prob"], 3)})
+
+    # Continual Learner
+    w_cl = weights.get("black_cl", 1.1)
+    with _cl_lock:
+        ngram_cache = CL_STATE["ngram_cache"]
+        trans = CL_STATE["transition_matrix"]
+
+    last_color = colors[-1] if colors else None
+    if last_color is not None and last_color in trans:
+        cl_prob_black = trans[last_color].get(2, 0.465)
+        score += cl_prob_black * w_cl
+        weight_sum += w_cl
+        signals.append({"name": "black_cl_transition", "conf": round(cl_prob_black, 3)})
+
+    for length in range(3, 7):
+        if len(colors) >= length:
+            key = tuple(colors[-length:])
+            if key in ngram_cache:
+                entry = ngram_cache[key]
+                total_ng = entry.get("total", 0)
+                black_ng = entry.get(2, 0)
+                if total_ng >= 8:
+                    ng_prob = bayes_prob(black_ng, total_ng)
+                    if ng_prob >= 0.60:
+                        score += ng_prob * w_cl * 0.8
+                        weight_sum += w_cl * 0.8
+                        signals.append({"name": f"black_cl_ngram_{length}", "conf": round(ng_prob, 3)})
+                        break
+
+    # Catalog
+    w_catalog = weights.get("black_catalog", 1.2)
+    with _catalog_lock:
+        best_cat = None
+        for s in GLOBAL_CATALOG_STRATS:
+            if s.get("target") != 2:
+                continue
+            if catalog_strategy_matches(s, colors):
+                if best_cat is None or s.get("wf_acc", 0) > best_cat.get("wf_acc", 0):
+                    best_cat = s
+    if best_cat:
+        cat_conf = best_cat.get("wf_acc", 0.6)
+        score += cat_conf * w_catalog
+        weight_sum += w_catalog
+        signals.append({"name": "black_catalog", "conf": round(cat_conf, 3)})
+
+    if weight_sum == 0:
+        return {"confidence": 0.0, "signals": signals, "color": 2}
+
+    final_conf = min(score / weight_sum, 0.99)
+    return {"confidence": round(final_conf, 4), "signals": signals, "color": 2}
+
+
+# ─────────────────────────── EXPERT: WHITE ⚪ ─────────────────────────────────
+def white_expert(colors: list, regime: dict) -> dict:
+    """Especialista dedicado a prever BRANCO."""
+    weights = get_neural_weights()
+    signals = []
+    score = 0.0
+    weight_sum = 0.0
+
+    # Sub-módulo 1: Poisson Hazard
+    wh = poisson_white_hazard(colors)
+    w_poisson = weights.get("white_poisson", 1.3)
+    score += wh["hazard"] * w_poisson
+    weight_sum += w_poisson
+    signals.append({"name": "white_poisson", "conf": round(wh["hazard"], 3)})
+
+    # Sub-módulo 2: Gap timing (baseado no gap médio histórico)
+    w_gap = weights.get("white_gap", 1.1)
+    avg_gap = wh["avg_gap"]
+    dist = wh["dist"]
+    if avg_gap > 0:
+        gap_timing_score = min(dist / avg_gap, 1.5) / 1.5
+        score += gap_timing_score * w_gap
+        weight_sum += w_gap
+        signals.append({"name": "white_gap_timing", "conf": round(gap_timing_score, 3)})
+
+    # Sub-módulo 3: Pós-branco (se acabou de sair branco)
+    w_post = weights.get("white_post", 1.0)
+    if wh["post_white"] or dist <= 2:
+        # Pouco após um branco, a prob de outro branco é baixa
+        score += 0.05 * w_post
+        weight_sum += w_post
+        signals.append({"name": "white_post_recent", "conf": 0.05})
+
+    # Sub-módulo 4: Continual Learner (transição para branco)
+    w_cl = weights.get("white_cl", 1.2)
+    with _cl_lock:
+        trans = CL_STATE["transition_matrix"]
+        ngram_cache = CL_STATE["ngram_cache"]
+        dist_full = CL_STATE["color_dist_full"]
+
+    last_color = colors[-1] if colors else None
+    if last_color is not None and last_color in trans:
+        cl_prob_white = trans[last_color].get(0, 0.07)
+        score += cl_prob_white * w_cl * 2.0  # Amplifica pois base é baixa
+        weight_sum += w_cl
+        signals.append({"name": "white_cl_transition", "conf": round(cl_prob_white, 3)})
+
+    # N-grama para branco
+    for length in range(3, 7):
+        if len(colors) >= length:
+            key = tuple(colors[-length:])
+            if key in ngram_cache:
+                entry = ngram_cache[key]
+                total_ng = entry.get("total", 0)
+                white_ng = entry.get(0, 0)
+                if total_ng >= 8 and white_ng >= 1:
+                    ng_prob = bayes_prob(white_ng, total_ng, alpha=0.5)
+                    if ng_prob >= 0.12:
+                        score += ng_prob * w_cl
+                        weight_sum += w_cl * 0.5
+                        signals.append({"name": f"white_cl_ngram_{length}", "conf": round(ng_prob, 3)})
+                        break
+
+    if weight_sum == 0:
+        return {"confidence": 0.0, "signals": signals, "color": 0}
+
+    final_conf = min(score / weight_sum, 0.99)
+    return {"confidence": round(final_conf, 4), "signals": signals, "color": 0}
+
+
+# ─────────────────────────── CATÁLOGO + MINER HELPERS ────────────────────────
+def load_catalog_strategies():
     try:
         conn = _conn()
         c = conn.cursor()
-        c.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='strategy_catalog'"
-        )
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='strategy_catalog'")
         if not c.fetchone():
             conn.close()
             return []
         c.execute("""
             SELECT strategy_id, family, name, params_json, target_color,
                    wf_acc, weight, quality_score, recent_acc
-            FROM strategy_catalog
-            WHERE status='active'
-            ORDER BY weight DESC
-            LIMIT 80
+            FROM strategy_catalog WHERE status='active'
+            ORDER BY weight DESC LIMIT 80
         """)
         rows = c.fetchall()
         conn.close()
@@ -547,20 +1010,11 @@ def load_catalog_strategies() -> list:
         for r in rows:
             try:
                 params = json.loads(r[3])
-                strats.append(
-                    {
-                        "id": r[0],
-                        "family": r[1],
-                        "name": r[2],
-                        "params": params,
-                        "target": r[4],
-                        "wf_acc": r[5] or 0.0,
-                        "weight": r[6] or 0.0,
-                        "quality": r[7] or 0.0,
-                        "recent_acc": r[8] or 0.0,
-                        "source": "catalog",
-                    }
-                )
+                strats.append({
+                    "id": r[0], "family": r[1], "name": r[2], "params": params,
+                    "target": r[4], "wf_acc": r[5] or 0.0, "weight": r[6] or 0.0,
+                    "quality": r[7] or 0.0, "recent_acc": r[8] or 0.0, "source": "catalog",
+                })
             except Exception:
                 pass
         return strats
@@ -568,16 +1022,14 @@ def load_catalog_strategies() -> list:
         return []
 
 
-def catalog_strategy_matches(strat: dict, colors: list) -> bool:
+def catalog_strategy_matches(strat, colors):
     family = strat["family"]
     p = strat["params"]
 
     if family == "exact_ngram":
         seq = p.get("seq", [])
         lag = len(seq)
-        if len(colors) - lag + 1 < 0:
-            return False
-        return colors[len(colors) - lag :] == seq
+        return colors[len(colors) - lag:] == seq if len(colors) >= lag else False
 
     if family == "run_edge":
         strk = streak_info(colors)
@@ -586,15 +1038,8 @@ def catalog_strategy_matches(strat: dict, colors: list) -> bool:
     if family == "white_gap":
         wh = poisson_white_hazard(colors)
         gap = wh["dist"]
-        gb = (
-            "0_4"
-            if gap <= 4
-            else (
-                "5_9"
-                if gap <= 9
-                else "10_14" if gap <= 14 else "15_22" if gap <= 22 else "23_plus"
-            )
-        )
+        gb = ("0_4" if gap <= 4 else "5_9" if gap <= 9 else
+              "10_14" if gap <= 14 else "15_22" if gap <= 22 else "23_plus")
         nw = [c for c in colors if c != 0]
         last_nw = nw[-1] if nw else None
         return gb == p.get("gap_bucket") and last_nw == p.get("last_color")
@@ -603,9 +1048,7 @@ def catalog_strategy_matches(strat: dict, colors: list) -> bool:
         nw = [c for c in colors if c != 0]
         last_nw = nw[-1] if nw else None
         fr = alternation_ratio(colors, int(p.get("window", 6)))
-        return last_nw == p.get("last_color") and fr >= float(
-            p.get("min_flip_ratio", 0.75)
-        )
+        return last_nw == p.get("last_color") and fr >= float(p.get("min_flip_ratio", 0.75))
 
     return False
 
@@ -617,27 +1060,25 @@ def refresh_catalog():
             strats = load_catalog_strategies()
             with _catalog_lock:
                 GLOBAL_CATALOG_STRATS = strats
-            log.info("Catálogo atualizado: %d estratégias ativas", len(strats))
+            log.info("Catálogo atualizado: %d estratégias", len(strats))
         except Exception as e:
-            log.warning("Erro ao carregar catálogo: %s", e)
+            log.warning("Erro catálogo: %s", e)
         time.sleep(60)
 
 
-# ─────────────────────────── MINERADOR LOCAL ─────────────────────────────────
-def mine_local_strategies(colors: list):
+def mine_local_strategies(colors):
     global GLOBAL_MINED_STRATS
     n = len(colors)
     max_g = get_max_gales()
-    patterns: dict = defaultdict(lambda: {1: 0, 2: 0, "m": 0})
-
-    recency_bonus_start = max(0, n - 300)
+    patterns = defaultdict(lambda: {1: 0, 2: 0, "m": 0})
+    recency_start = max(0, n - 300)
 
     for length in range(2, 8):
         for i in range(length - 1, n - 1 - max_g):
-            seq = tuple(colors[i - length + 1 : i + 1])
+            seq = tuple(colors[i - length + 1: i + 1])
             d = patterns[seq]
             d["m"] += 1
-            bonus = 2 if i >= recency_bonus_start else 1
+            bonus = 2 if i >= recency_start else 1
             for alvo in (1, 2):
                 for step in range(1 + max_g):
                     idx = i + 1 + step
@@ -655,26 +1096,17 @@ def mine_local_strategies(colors: list):
             b = bayes_prob(w, m)
             if b >= MINER_MIN_BAYES:
                 txt = "-".join(color_short(c) for c in seq)
-                strats.append(
-                    {
-                        "id": f"mined_{txt}_{alvo}",
-                        "family": "exact_ngram_local",
-                        "name": f"Local [{txt}]→{'V' if alvo==1 else 'P'}",
-                        "seq": seq,
-                        "target": alvo,
-                        "prob": b,
-                        "matches": m,
-                        "wins": w,
-                        "source": "miner",
-                        "wf_acc": 0.0,
-                        "weight": b * min(m / 30.0, 1.0),
-                    }
-                )
+                strats.append({
+                    "id": f"mined_{txt}_{alvo}", "family": "exact_ngram_local",
+                    "name": f"Local [{txt}]→{'V' if alvo==1 else 'P'}",
+                    "seq": seq, "target": alvo, "prob": b, "matches": m, "wins": w,
+                    "source": "miner", "wf_acc": 0.0, "weight": b * min(m / 30.0, 1.0),
+                })
 
     strats.sort(key=lambda x: x["weight"], reverse=True)
     with _miner_lock:
         GLOBAL_MINED_STRATS = strats[:80]
-    log.info("Minerador local: %d padrões válidos", len(strats[:80]))
+    log.info("Miner: %d padrões", len(strats[:80]))
 
 
 def miner_thread():
@@ -688,313 +1120,101 @@ def miner_thread():
             c.execute("SELECT color FROM results_raw ORDER BY id ASC")
             colors = [r[0] for r in c.fetchall()]
             conn.close()
-
-            if n < 100:
-                time.sleep(10)
-                continue
-
-            if n - last_count >= MINER_INTERVAL or last_count == 0:
+            if n >= 100 and (n - last_count >= MINER_INTERVAL or last_count == 0):
                 mine_local_strategies(colors)
                 last_count = n
         except Exception as e:
-            log.error("Erro no minerador: %s", e)
+            log.error("Miner erro: %s", e)
         time.sleep(8)
 
 
-# ─────────────────────────── MÓDULOS DO ENSEMBLE ─────────────────────────────
-def module_local_miner(colors: list, regime: dict) -> dict:
-    best = None
-    with _miner_lock:
-        for s in GLOBAL_MINED_STRATS:
-            seq = s["seq"]
-            if len(colors) >= len(seq) and tuple(colors[-len(seq) :]) == seq:
-                pw = get_pattern_weight(s["id"])
-                score = s["weight"] * pw
-                if best is None or score > best["score"]:
-                    best = {**s, "score": score, "pw": pw}
+# ─────────────────────────── MoE ENGINE PRINCIPAL ────────────────────────────
+def run_moe_engine(colors: list, regime: dict, last_round: dict = None) -> dict:
+    """
+    Executa o Mixture of Experts:
+    1. Gating Network decide pesos por expert
+    2. Cada expert (Red, Black, White) calcula sua confiança
+    3. Meta-Learner combina com pesos neurais
+    4. Retorna sinal final
+    """
+    gate_weights = gating_network(regime, colors)
 
-    if best and best["prob"] >= THRESHOLD_MIN:
-        regime_bonus = 1.2 if regime["name"] == "balanced" else 1.0
-        return {
-            "vote": best["target"],
-            "confidence": min(best["prob"] * best["pw"] * regime_bonus, 0.99),
-            "label": best["name"],
-            "key": best["id"],
-            "source": "miner",
-        }
-    return {"vote": None, "confidence": 0.0, "label": "miner:sem_match", "key": "", "source": "miner"}
+    red_result = red_expert(colors, regime)
+    black_result = black_expert(colors, regime)
+    white_result = white_expert(colors, regime)
 
+    # Aplicar pesos do Gating Network
+    red_score = red_result["confidence"] * gate_weights["red"]
+    black_score = black_result["confidence"] * gate_weights["black"]
+    white_score = white_result["confidence"] * gate_weights["white"]
 
-def module_catalog(colors: list, regime: dict) -> dict:
-    best = None
-    with _catalog_lock:
-        for s in GLOBAL_CATALOG_STRATS:
-            if catalog_strategy_matches(s, colors):
-                pw = get_pattern_weight(s["id"])
-                score = (s["wf_acc"] * 0.6 + s["weight"] * 0.4) * pw * 1.15
-                if best is None or score > best["score"]:
-                    best = {**s, "score": score, "pw": pw}
-
-    if best:
-        return {
-            "vote": best["target"],
-            "confidence": min(best["score"], 0.99),
-            "label": best["name"],
-            "key": best["id"],
-            "source": "catalog",
-        }
-    return {"vote": None, "confidence": 0.0, "label": "catalog:sem_match", "key": "", "source": "catalog"}
-
-
-def module_markov(colors: list, regime: dict) -> dict:
-    nw = [c for c in colors if c != 0]
-    if len(nw) < 5:
-        return {"vote": None, "confidence": 0.0, "label": "markov:insuf", "key": "markov", "source": "markov"}
-
-    p1r = markov_prob(nw, 1, order=1)
-    p2r = markov_prob(nw, 1, order=2)
-    p1b = markov_prob(nw, 2, order=1)
-    p2b = markov_prob(nw, 2, order=2)
-
-    prob_red = p1r * 0.4 + p2r * 0.6
-    prob_black = p1b * 0.4 + p2b * 0.6
-    margin = abs(prob_red - prob_black)
-
-    if margin < 0.06:
-        return {"vote": None, "confidence": 0.0, "label": "markov:indeciso", "key": "markov", "source": "markov"}
-
-    if abs(prob_red - prob_black) < 0.02:
-        return {"vote": None, "confidence": 0.0, "label": "markov:empate", "key": "markov", "source": "markov"}
-
-    vote = 1 if prob_red > prob_black else 2
-    conf = max(prob_red, prob_black)
-    regime_bonus = 1.15 if regime["name"] in ("alternating", "streak_hot") else 1.0
-    return {
-        "vote": vote,
-        "confidence": min(conf * regime_bonus, 0.99),
-        "label": f"Markov ord2 {'V' if vote==1 else 'P'} {conf:.0%}",
-        "key": "markov",
-        "source": "markov",
-    }
-
-
-def module_streak_reversal(colors: list, regime: dict) -> dict:
-    nw = [c for c in colors if c != 0]
-    if len(nw) < 6:
-        return {"vote": None, "confidence": 0.0, "label": "streak:insuf", "key": "streak", "source": "streak"}
-
-    strk = streak_info(nw)
-    if strk["length"] < 3:
-        return {"vote": None, "confidence": 0.0, "label": "streak:curto", "key": "streak", "source": "streak"}
-
-    sc = strk["color"]
-    sl = strk["length"]
-    n = len(nw)
-    reversals = continuations = 0
-    max_g = get_max_gales()
-
-    for i in range(1, n):
-        run = 0
-        j = i - 1
-        while j >= 0 and nw[j] == sc:
-            run += 1
-            j -= 1
-        if run == sl:
-            for step in range(1 + max_g):
-                idx2 = i + step
-                if idx2 < n:
-                    if nw[idx2] != sc:
-                        reversals += 1
-                    else:
-                        continuations += 1
-                    break
-
-    total = reversals + continuations
-    if total < 4:
-        return {"vote": None, "confidence": 0.0, "label": "streak:sem_dados", "key": "streak", "source": "streak"}
-
-    reversal_rate = bayes_prob(reversals, total)
-    opponent = 2 if sc == 1 else 1
-
-    if reversal_rate >= 0.60:
-        regime_bonus = 1.2 if regime["name"] == "streak_hot" else 1.0
-        return {
-            "vote": opponent,
-            "confidence": min(reversal_rate * regime_bonus, 0.99),
-            "label": f"Reversão streak {sl}x {'V' if sc==1 else 'P'} → {'V' if opponent==1 else 'P'} ({reversal_rate:.0%})",
-            "key": f"streak_{sc}_{sl}",
-            "source": "streak",
-        }
-
-    if reversal_rate <= 0.40:
-        regime_bonus = 1.1 if regime["name"] == "streak_hot" else 1.0
-        return {
-            "vote": sc,
-            "confidence": min((1.0 - reversal_rate) * regime_bonus, 0.99),
-            "label": f"Continuação streak {sl}x ({(1-reversal_rate):.0%})",
-            "key": f"streak_{sc}_{sl}_cont",
-            "source": "streak",
-        }
-
-    return {"vote": None, "confidence": 0.0, "label": "streak:neutro", "key": "streak", "source": "streak"}
-
-
-def module_white_cycle(colors: list, regime: dict) -> dict:
+    # White Veto — se hazard muito alto, bloqueia tudo
     wh = poisson_white_hazard(colors)
-
-    if wh["hazard"] >= 0.80:
+    if wh["hazard"] >= 0.82:
         return {
-            "vote": None,
-            "confidence": 0.0,
-            "label": f"⚠️ Hazard branca {wh['hazard']:.0%} — VETO",
-            "key": "white_hazard_veto",
-            "source": "white",
-            "veto": True,
+            "action": "block", "color": None, "confidence": white_score,
+            "expert_used": "white_veto",
+            "reason": f"⚪ VETO BRANCO — Hazard {wh['hazard']:.0%} crítico",
+            "kelly": 0.0, "gate_weights": gate_weights,
+            "experts": {"red": red_result, "black": black_result, "white": white_result},
         }
 
-    if wh["post_white"] or wh["dist"] <= 3:
-        post_white_counts = defaultdict(int)
-        for i, c in enumerate(colors):
-            if c == 0 and i + 1 < len(colors):
-                next_c = colors[i + 1]
-                if next_c in (1, 2):
-                    post_white_counts[next_c] += 1
-
-        total_pw = sum(post_white_counts.values())
-        if total_pw >= 10:
-            pr = post_white_counts[1] / total_pw
-            pb = post_white_counts[2] / total_pw
-            if abs(pr - pb) < 0.03:
-                return {"vote": None, "confidence": 0.0, "label": "white:post_empate", "key": "post_white_cycle", "source": "white"}
-
-            vote = 1 if pr > pb else 2
-            conf = max(pr, pb)
-            if conf >= 0.58:
-                regime_bonus = 1.1 if regime["name"] == "white_zone" else 1.0
-                return {
-                    "vote": vote,
-                    "confidence": min(conf * regime_bonus, 0.99),
-                    "label": f"Pós-branco: {'V' if vote==1 else 'P'} ({conf:.0%})",
-                    "key": "post_white_cycle",
-                    "source": "white",
-                }
-
-    return {"vote": None, "confidence": 0.0, "label": "white:neutro", "key": "white", "source": "white"}
-
-
-# ─────────────────────────── ENSEMBLE VOTER (COM REDE NEURAL) ─────────────────
-def run_ensemble(colors: list, regime: dict, last_round: dict = None) -> dict:
-    modules_results = [
-        module_local_miner(colors, regime),
-        module_catalog(colors, regime),
-        module_markov(colors, regime),
-        module_streak_reversal(colors, regime),
-        module_white_cycle(colors, regime),
-    ]
-
-    for m in modules_results:
-        if m.get("veto"):
-            return {
-                "action": "block",
-                "color": None,
-                "confidence": 0.0,
-                "votes": modules_results,
-                "reason": m["label"],
-                "kelly": 0.0,
-                "vote_count": 0,
-            }
-
-    scores = {1: 0.0, 2: 0.0}
-    vote_counts = {1: 0, 2: 0}
-    active_votes = []
-    
-    # Busca os pesos da camada neural (Meta-Learner)
-    neural_weights = get_neural_weights()
-
-    for m in modules_results:
-        if m["vote"] is None:
-            continue
-        
-        # Aplicação da Camada Sináptica
-        weight = neural_weights.get(m["source"], 1.0)
-        weighted_conf = m["confidence"] * weight
-        
-        scores[m["vote"]]      += weighted_conf
-        vote_counts[m["vote"]] += 1
-        active_votes.append(m)
-
-    if not active_votes:
-        return {
-            "action": "wait", "color": None, "confidence": 0.0,
-            "votes": modules_results, "reason": "⏳ Nenhum módulo com sinal. Aguardando convergência.",
-            "kelly": 0.0, "vote_count": 0,
-        }
-
-    if scores[1] == scores[2]:
-        return {
-            "action": "wait", "color": None, "confidence": 0.0,
-            "votes": modules_results, "reason": "⏳ Empate no ensemble — aguardando convergência.",
-            "kelly": 0.0, "vote_count": max(vote_counts.values()),
-        }
-
+    # Determinar vencedor
+    scores = {1: red_score, 2: black_score, 0: white_score}
     winner = max(scores, key=scores.get)
-    loser = 2 if winner == 1 else 1
-
-    votes_for_winner = vote_counts[winner]
-    votes_against = vote_counts[loser]
-    
-    total_weights = sum(neural_weights.get(m["source"], 1.0) for m in active_votes if m["vote"] == winner)
-
-    # Sigmoid / Normalização pela soma dos pesos
-    avg_conf = scores[winner] / max(total_weights, 1.0)
-    
-    consensus_bonus = 0.15 if votes_against == 0 and votes_for_winner > 1 else 0.0
-    penalty = 0.12 if votes_against >= 2 else 0.0
-
-    norm_conf = min(max(avg_conf + consensus_bonus - penalty, 0.0), 0.99)
+    winner_conf = scores[winner]
 
     with _threshold_lock:
         threshold = _threshold_state["value"]
         mute_until = _threshold_state["mute_until_round"]
         total_rounds = _threshold_state["total_rounds_seen"]
 
+    # Auto-Mute
     if total_rounds < mute_until:
         remaining = mute_until - total_rounds
         return {
-            "action": "wait", "color": None, "confidence": norm_conf,
-            "votes": modules_results, "reason": f"🔇 Auto-Mute ativo. Recuperando performance ({remaining} rounds).",
-            "kelly": 0.0, "vote_count": votes_for_winner,
+            "action": "wait", "color": None, "confidence": winner_conf,
+            "expert_used": "",
+            "reason": f"🔇 Auto-Mute ativo ({remaining} rounds restantes)",
+            "kelly": 0.0, "gate_weights": gate_weights,
+            "experts": {"red": red_result, "black": black_result, "white": white_result},
         }
 
-    if norm_conf < threshold or votes_for_winner < MIN_VOTES_TO_ENTER:
-        reason_parts = []
-        if norm_conf < threshold:
-            reason_parts.append(f"edge {norm_conf:.0%} < threshold {threshold:.0%}")
-        if votes_for_winner < MIN_VOTES_TO_ENTER:
-            reason_parts.append(f"votos {votes_for_winner}/{MIN_VOTES_TO_ENTER}")
-        top_labels = [m["label"] for m in active_votes[:2]]
+    # Threshold
+    if winner_conf < threshold:
         return {
-            "action": "wait", "color": None, "confidence": norm_conf,
-            "votes": modules_results, "reason": f"⏳ Aguardando: {'; '.join(reason_parts)}. Sinais: {', '.join(top_labels)}",
-            "kelly": 0.0, "vote_count": votes_for_winner,
+            "action": "wait", "color": None, "confidence": winner_conf,
+            "expert_used": "",
+            "reason": f"⏳ Edge {winner_conf:.0%} < threshold {threshold:.0%}",
+            "kelly": 0.0, "gate_weights": gate_weights,
+            "experts": {"red": red_result, "black": black_result, "white": white_result},
         }
 
-    alvo_label = "VERMELHO 🔴" if winner == 1 else "PRETO ⚫"
-    contributing = [m["label"] for m in active_votes if m["vote"] == winner]
-    kelly_val = kelly_fraction(norm_conf)
-
+    # Sinal de entrada
+    expert_name = {1: "🔴 RED Expert", 2: "⚫ BLACK Expert", 0: "⚪ WHITE Expert"}[winner]
+    color_label = {1: "VERMELHO 🔴", 2: "PRETO ⚫", 0: "BRANCO ⚪"}[winner]
     after_str = f" [Após {last_round['roll']} ({color_short(last_round['color'])})]" if last_round else ""
 
+    # Kelly ajustado pelo gate weight
+    kelly_val = kelly_fraction(winner_conf) * gate_weights[{1: "red", 2: "black", 0: "white"}[winner]]
+
+    with _cl_lock:
+        drift = CL_STATE["drift_detected"]
+
+    drift_warning = " ⚠️ DRIFT ATIVO" if drift else ""
+
     return {
-        "action": "enter", "color": winner, "confidence": round(norm_conf, 4),
-        "votes": modules_results,
-        "reason": f"🎯 {alvo_label}{after_str} | Edge {norm_conf:.0%} | [{'; '.join(contributing[:2])}]",
-        "kelly": round(kelly_val * 100, 2), "vote_count": votes_for_winner,
+        "action": "enter", "color": winner, "confidence": round(winner_conf, 4),
+        "expert_used": {1: "red", 2: "black", 0: "white"}[winner],
+        "reason": f"🎯 {color_label}{after_str} | {expert_name} | Edge {winner_conf:.0%}{drift_warning}",
+        "kelly": round(kelly_val * 100, 2),
+        "gate_weights": gate_weights,
+        "experts": {"red": red_result, "black": black_result, "white": white_result},
     }
 
 
-# ─────────────────────────── GROQ ANALISTA RICH ──────────────────────────────
-def ask_groq_analyst(colors: list, ensemble_result: dict, regime: dict) -> dict:
+# ─────────────────────────── GROQ VALIDATOR ──────────────────────────────────
+def ask_groq_analyst(colors: list, moe_result: dict, regime: dict) -> dict:
     groq_key = (get_sys_config("groq_key", "") or "").strip()
     llm_enabled = get_sys_config("llm_enabled", "0")
 
@@ -1002,41 +1222,33 @@ def ask_groq_analyst(colors: list, ensemble_result: dict, regime: dict) -> dict:
         return {"status": "disabled", "model": "", "reason": "LLM desativado"}
 
     seq_str = "-".join(color_short(c) for c in colors[-25:])
-    alvo_str = "VERMELHO" if ensemble_result["color"] == 1 else "PRETO"
-    regime_str = regime["label"]
-    votes_str = f"{ensemble_result['vote_count']}/{ENSEMBLE_MODULES} módulos"
-    edge_str = f"{ensemble_result['confidence']:.1%}"
+    alvo_str = {1: "VERMELHO", 2: "PRETO", 0: "BRANCO"}.get(moe_result["color"], "?")
+    gate = moe_result.get("gate_weights", {})
 
     with _threshold_lock:
         hist = list(_threshold_state["history"])[-15:]
-    wins_recent = sum(hist)
-    total_recent = len(hist)
-    wr_str = f"{wins_recent}/{total_recent}" if total_recent else "sem histórico"
+    wr_str = f"{sum(hist)}/{len(hist)}" if hist else "sem histórico"
 
-    prompt = f"""Você é um analista quantitativo especialista em Blaze Double.
-Analise este sinal e responda com APENAS UMA PALAVRA: CONFIRMAR, REDUZIR ou VETAR.
+    with _cl_lock:
+        drift = CL_STATE["drift_detected"]
+        drift_mag = CL_STATE["drift_magnitude"]
 
-CONTEXTO DO SISTEMA:
-• Últimas 25 cores: {seq_str}
-• Regime atual: {regime_str}
-• Alvo do sinal: {alvo_str}
-• Edge do ensemble: {edge_str}
-• Módulos concordantes: {votes_str}
-• Performance recente: {wr_str} acertos
+    prompt = f"""Você é analista quantitativo especialista em Blaze Double.
+Analise e responda APENAS: CONFIRMAR, REDUZIR ou VETAR.
 
-CRITÉRIO:
-• CONFIRMAR: contexto é favorável, padrão é robusto
-• REDUZIR: sinal existe mas contexto é ambíguo (entrada com Kelly reduzido)
-• VETAR: padrão parece ruído, armadilha ou regime desfavorável"""
+• Últimas 25: {seq_str}
+• Regime: {regime['label']}
+• Expert ativo: {moe_result.get('expert_used', '?')} → {alvo_str}
+• Edge: {moe_result['confidence']:.1%}
+• Gate weights: R={gate.get('red',0):.2f} B={gate.get('black',0):.2f} W={gate.get('white',0):.2f}
+• Performance recente: {wr_str}
+• Concept Drift: {'SIM magnitude=' + str(round(drift_mag,3)) if drift else 'NÃO'}"""
 
     for model in get_groq_models():
         try:
             resp = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {groq_key}",
-                    "Content-Type": "application/json",
-                },
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
                 json={
                     "model": model, "temperature": 0.05, "max_tokens": 6,
                     "messages": [
@@ -1046,15 +1258,13 @@ CRITÉRIO:
                 },
                 timeout=6,
             )
-            if resp.status_code != 200: continue
-
-            answer = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
-
+            if resp.status_code != 200:
+                continue
+            answer = resp.json()["choices"][0]["message"]["content"].strip().upper()
             if "VETAR" in answer: return {"status": "vetar", "model": model, "reason": answer}
             if "REDUZIR" in answer: return {"status": "reduzir", "model": model, "reason": answer}
             if "CONFIRMAR" in answer: return {"status": "confirmar", "model": model, "reason": answer}
             return {"status": "inconclusivo", "model": model, "reason": answer}
-
         except Exception as e:
             log.debug("Groq %s falhou: %s", model, e)
 
@@ -1071,26 +1281,19 @@ def update_threshold(won: bool):
             _threshold_state["consecutive_losses"] = 0
             _threshold_state["consecutive_wins"] += 1
             _threshold_state["mute_win_counter"] += 1
-
             if _threshold_state["mute_win_counter"] >= MUTE_SCORE_NEEDED:
                 _threshold_state["mute_until_round"] = 0
                 _threshold_state["mute_win_counter"] = 0
-                log.info("🔊 Auto-Mute encerrado — performance recuperada")
-
+                log.info("🔊 Auto-Mute encerrado")
             new_t = max(THRESHOLD_MIN, _threshold_state["value"] - THRESHOLD_STEP_DOWN)
         else:
             _threshold_state["consecutive_wins"] = 0
             _threshold_state["consecutive_losses"] += 1
-
             if _threshold_state["consecutive_losses"] >= AUTO_MUTE_LOSSES:
                 mute_end = _threshold_state["total_rounds_seen"] + AUTO_MUTE_ROUNDS
                 _threshold_state["mute_until_round"] = mute_end
                 _threshold_state["mute_win_counter"] = 0
-                log.warning(
-                    "🔇 AUTO-MUTE ATIVADO — %d derrotas consecutivas. Silêncio por %d rounds.",
-                    _threshold_state["consecutive_losses"], AUTO_MUTE_ROUNDS,
-                )
-
+                log.warning("🔇 AUTO-MUTE ATIVADO por %d rounds", AUTO_MUTE_ROUNDS)
             new_t = min(THRESHOLD_MAX, _threshold_state["value"] + THRESHOLD_STEP_UP)
 
         _threshold_state["value"] = round(new_t, 4)
@@ -1112,13 +1315,12 @@ def load_threshold_state():
     log.info("Threshold restaurado: %.2f%%", _threshold_state["value"] * 100)
 
 
-# ─────────────────────────── ENGINE PRINCIPAL ────────────────────────────────
+# ─────────────────────────── ENGINE WRAPPER ──────────────────────────────────
 def run_engine(seq: list) -> dict:
     colors = [r["color"] for r in seq]
-    n = len(colors)
     wh = poisson_white_hazard(colors)
     regime = detect_regime(colors)
-    result = run_ensemble(colors, regime, seq[-1])
+    result = run_moe_engine(colors, regime, seq[-1])
 
     groq_status = ""
     groq_model = ""
@@ -1130,16 +1332,14 @@ def run_engine(seq: list) -> dict:
 
         if groq_status == "vetar":
             result["action"] = "block"
-            result["confidence"] = min(result["confidence"] * 0.50, 0.45) 
+            result["confidence"] = min(result["confidence"] * 0.5, 0.45)
             result["reason"] = f"🤖 VETO LLM ({groq_model}): {result['reason']}"
             result["kelly"] = 0.0
-
         elif groq_status == "reduzir":
-            result["kelly"] = round(result["kelly"] * 0.50, 2)
-            result["reason"] = f"⚡ KELLY REDUZIDO (LLM): {result['reason']}"
-
+            result["kelly"] = round(result["kelly"] * 0.5, 2)
+            result["reason"] = f"⚡ KELLY REDUZIDO: {result['reason']}"
         elif groq_status == "confirmar":
-            result["kelly"] = round(min(result["kelly"] * 1.30, 5.0), 2)
+            result["kelly"] = round(min(result["kelly"] * 1.3, 5.0), 2)
             result["reason"] = f"✅ LLM CONFIRMADO: {result['reason']}"
 
     white_p = 0.07
@@ -1152,28 +1352,46 @@ def run_engine(seq: list) -> dict:
     else:
         probs = {"red": 0.465, "black": 0.465, "white": 0.07}
 
-    votes_summary = [
-        {"module": m["source"], "vote": m["vote"], "conf": round(m["confidence"], 3), "label": m["label"]}
-        for m in result.get("votes", [])
-    ]
+    gate = result.get("gate_weights", {})
+    experts = result.get("experts", {})
+
+    with _cl_lock:
+        cl_info = {
+            "dist_500": CL_STATE["color_dist_500"],
+            "drift": CL_STATE["drift_detected"],
+            "drift_mag": round(CL_STATE["drift_magnitude"], 4),
+            "last_relearn": CL_STATE["last_relearn_ts"],
+        }
 
     return {
-        "n": n,
+        "n": len(seq),
         "signal": {
             "action": result["action"], "color": result["color"],
             "confidence": result["confidence"], "kelly": result["kelly"],
-            "reason": result["reason"],
+            "reason": result["reason"], "expert_used": result.get("expert_used", ""),
         },
         "probs": probs,
         "regime": {"regime": regime["name"], "label": regime["label"], "strength": regime["strength"]},
         "tests": {"white": wh},
         "features": {
             "llm_status": groq_status, "llm_model": groq_model,
-            "kelly_pct": result["kelly"], "vote_count": result.get("vote_count", 0),
-            "ensemble_modules": ENSEMBLE_MODULES, "threshold_used": _threshold_state["value"],
-            "regime_name": regime["name"], "miner_count": len(GLOBAL_MINED_STRATS),
+            "kelly_pct": result["kelly"],
+            "gate_red": gate.get("red", 0), "gate_black": gate.get("black", 0),
+            "gate_white": gate.get("white", 0),
+            "expert_red_conf": experts.get("red", {}).get("confidence", 0),
+            "expert_black_conf": experts.get("black", {}).get("confidence", 0),
+            "expert_white_conf": experts.get("white", {}).get("confidence", 0),
+            "threshold_used": _threshold_state["value"],
+            "regime_name": regime["name"],
+            "miner_count": len(GLOBAL_MINED_STRATS),
             "catalog_count": len(GLOBAL_CATALOG_STRATS),
-            "votes_json": json.dumps(votes_summary, ensure_ascii=False),
+            "cl_drift": cl_info["drift"],
+            "cl_drift_mag": cl_info["drift_mag"],
+            "cl_last_relearn": cl_info["last_relearn"] or "",
+            "votes_json": json.dumps([
+                {"module": k, "conf": round(v.get("confidence", 0), 3)}
+                for k, v in experts.items()
+            ], ensure_ascii=False),
         },
     }
 
@@ -1187,26 +1405,22 @@ def save_snapshot(seq: list, engine_result: dict) -> int:
     wh = engine_result["tests"]["white"]
     feat = engine_result["features"]
 
-    patterns = []
-    if s["action"] in ("enter", "block"):
-        patterns = [{"name": s["reason"][:80], "strength": s["confidence"]}]
-
     conn = _conn()
     cur = conn.execute(
-        """
-        INSERT INTO analysis_snapshots
+        """INSERT INTO analysis_snapshots
         (ts, total_rounds, last_round_id, prob_red, prob_black, prob_white,
          signal_color, signal_conf, signal_action, signal_reason,
          regime, regime_strength, white_hazard, dist_last_white,
          features_json, patterns_json, mode_used, votes_json, threshold_used)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    """,
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
-            datetime.now(timezone.utc).isoformat(), len(seq), lid, p["red"], p["black"], p["white"],
+            datetime.now(timezone.utc).isoformat(), len(seq), lid,
+            p["red"], p["black"], p["white"],
             s.get("color"), s.get("confidence"), s.get("action"), s.get("reason"),
             reg.get("label"), reg["strength"], wh["hazard"], wh["dist"],
-            json.dumps(feat, ensure_ascii=False, default=str), json.dumps(patterns, ensure_ascii=False),
-            "leviathan", feat.get("votes_json", "[]"), feat.get("threshold_used", THRESHOLD_START),
+            json.dumps(feat, ensure_ascii=False, default=str),
+            json.dumps([{"name": s.get("reason", "")[:80], "strength": s.get("confidence", 0)}]),
+            "moe_v2", feat.get("votes_json", "[]"), feat.get("threshold_used", THRESHOLD_START),
         ),
     )
     snap_id = cur.lastrowid
@@ -1221,8 +1435,7 @@ def validate_previous(current_color: int, current_round_id: str):
     try:
         c = conn.cursor()
         c.execute("""
-            SELECT id, last_round_id, signal_color, signal_action,
-                   COALESCE(votes_json, '[]'), features_json
+            SELECT id, last_round_id, signal_color, signal_action, features_json
             FROM analysis_snapshots
             WHERE signal_action IN ('enter', 'gale_1', 'gale_2')
             ORDER BY id DESC LIMIT 1
@@ -1230,7 +1443,7 @@ def validate_previous(current_color: int, current_round_id: str):
         row = c.fetchone()
         if not row: return
 
-        snap_id, pred_last_rid, pred_color, s_action, votes_json_str, feat_json_str = row
+        snap_id, pred_last_rid, pred_color, s_action, feat_json_str = row
 
         c.execute("SELECT action FROM prediction_performance WHERE snapshot_id=?", (snap_id,))
         if c.fetchone(): return
@@ -1251,54 +1464,56 @@ def validate_previous(current_color: int, current_round_id: str):
         else:
             correct = 1 if current_color == pred_color else 0
             won = bool(correct)
-            if correct: action_res = "win"
+            if correct:
+                action_res = "win"
             else:
-                max_g = get_max_gales()
                 gale_step = {"enter": 0, "gale_1": 1, "gale_2": 2}.get(s_action, 0)
-                action_res = "gale_pending" if gale_step < max_g else "loss"
+                action_res = "gale_pending" if gale_step < get_max_gales() else "loss"
 
-        c.execute(
-            """
+        try:
+            feat = json.loads(feat_json_str or "{}")
+            expert_used = feat.get("expert_used", "")
+        except Exception:
+            expert_used = ""
+
+        c.execute("""
             INSERT INTO prediction_performance
-            (snapshot_id, ts, predicted, actual, correct, action, mode, pattern_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (snap_id, datetime.now(timezone.utc).isoformat(), pred_color, current_color,
-             correct, action_res, "leviathan", ""),
-        )
+            (snapshot_id, ts, predicted, actual, correct, action, mode, pattern_key, expert_used)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            snap_id, datetime.now(timezone.utc).isoformat(),
+            pred_color, current_color, correct, action_res, "moe_v2", "", expert_used,
+        ))
         conn.commit()
 
         if action_res in ("win", "loss", "empate_branco"):
             update_threshold(won)
 
-            try:
-                votes = json.loads(votes_json_str or "[]")
-                # Converter JSON para dict nativo para a atualização neural
-                module_votes = {}
-                for v in votes:
-                    key = v.get("label", "")[:30]
-                    if key: record_pattern_outcome(key, won)
-                    module_votes[v.get("module")] = {"vote": v.get("vote"), "confidence": v.get("conf")}
-                
-                # Executa o Backpropagation do Meta-Learner
-                actual_winner = pred_color if won else (2 if pred_color == 1 else 1)
-                update_neural_weights(module_votes, actual_winner)
-
-            except Exception:
-                pass
+            # Atualizar pesos neurais do expert específico
+            if expert_used and pred_color is not None:
+                color_key = {1: "red", 2: "black", 0: "white"}.get(pred_color, "")
+                if color_key:
+                    try:
+                        feat = json.loads(feat_json_str or "{}")
+                        conf = feat.get(f"expert_{color_key}_conf", 0.5)
+                        for sub in ["markov", "miner", "catalog", "cl", "streak",
+                                    "poisson", "gap", "post"]:
+                            key = f"{color_key}_{sub}"
+                            update_neural_weights(key, won, float(conf))
+                    except Exception:
+                        pass
 
             log.info(
-                "📊 Performance: %s | predicted=%s actual=%s | threshold=%.2f%%",
-                action_res.upper(), color_name(pred_color), color_name(current_color),
-                _threshold_state["value"] * 100,
+                "📊 MoE Performance: %s | expert=%s | predicted=%s actual=%s | threshold=%.2f%%",
+                action_res.upper(), expert_used, color_name(pred_color),
+                color_name(current_color), _threshold_state["value"] * 100,
             )
-
     finally:
         conn.close()
 
 
-# ─────────────────────────── GALE INTELIGENTE (COM ABORTO NEURAL) ─────────────
-def check_pending_gale(seq: list) -> Optional[dict]:
+# ─────────────────────────── GALE INTELIGENTE ────────────────────────────────
+def check_pending_gale(seq: list):
     max_gales = get_max_gales()
     if max_gales == 0: return None
 
@@ -1330,42 +1545,38 @@ def check_pending_gale(seq: list) -> Optional[dict]:
         if gap == 1 and gale_step < max_gales:
             colors = [r["color"] for r in seq]
             regime = detect_regime(colors)
-            ensemble_check = run_ensemble(colors, regime, seq[-1])
-            
-            # BLOQUEIO DE CUSTO IRRECUPERÁVEL (Sunk Cost Fallacy Block)
-            still_valid = (ensemble_check["action"] == "enter" and ensemble_check["color"] == pred_color)
+            moe_check = run_moe_engine(colors, regime, seq[-1])
 
+            still_valid = (moe_check["action"] == "enter" and moe_check["color"] == pred_color)
             next_gale = gale_step + 1
             last_round = seq[-1]
-            after_gale_str = f" [Após {last_round['roll']} ({color_short(last_round['color'])})]"
+            after_str = f" [Após {last_round['roll']} ({color_short(last_round['color'])})]"
 
             if still_valid:
-                kelly_g = round(kelly_fraction(ensemble_check["confidence"]) * 2 * 100, 2)
-                conf_g = ensemble_check["confidence"]
-                label = f"🔥 Gale {next_gale} CONFIRMADO{after_gale_str} pelo Ensemble ({conf_g:.0%})"
-                
+                kelly_g = round(kelly_fraction(moe_check["confidence"]) * 2 * 100, 2)
                 return {
-                    "action": f"gale_{next_gale}", "color": pred_color, "confidence": conf_g,
-                    "kelly": kelly_g, "reason": label,
+                    "action": f"gale_{next_gale}", "color": pred_color,
+                    "confidence": moe_check["confidence"], "kelly": kelly_g,
+                    "reason": f"🔥 Gale {next_gale} CONFIRMADO{after_str} pelo MoE ({moe_check['confidence']:.0%})",
+                    "expert_used": moe_check.get("expert_used", ""),
                 }
             else:
-                # SE O MOTOR NEURAL DISCORDAR AGORA, ABORTA O GALE PARA PROTEGER BANCA
-                log.warning(f"🛡️ GALE {next_gale} ABORTADO! A Rede Neural detectou mudança estrutural.")
+                log.warning("🛡️ GALE %d ABORTADO — MoE detectou mudança estrutural.", next_gale)
                 return None
     finally:
         conn.close()
     return None
 
 
-# ─────────────────────────── CICLO DE ANÁLISE ────────────────────────────────
+# ─────────────────────────── CICLO PRINCIPAL ─────────────────────────────────
 _last_notified = None
+
 
 def run_analysis_cycle() -> bool:
     global _last_notified
 
     last_db = get_last_round_id()
     last_an = get_last_analyzed_round_id()
-
     if last_db is None or last_db == last_an: return False
 
     seq = load_sequence(4000)
@@ -1376,28 +1587,36 @@ def run_analysis_cycle() -> bool:
         _threshold_state["total_rounds_seen"] = n
 
     validate_previous(seq[-1]["color"], seq[-1]["round_id"])
-
     gale_sig = check_pending_gale(seq)
 
     if gale_sig:
         colors = [r["color"] for r in seq]
         wh = poisson_white_hazard(colors)
         regime = detect_regime(colors)
+        with _cl_lock:
+            cl_info = {
+                "drift": CL_STATE["drift_detected"],
+                "drift_mag": CL_STATE["drift_magnitude"],
+                "last_relearn": CL_STATE["last_relearn_ts"],
+            }
         er = {
             "n": n,
             "signal": {
                 "action": gale_sig["action"], "color": gale_sig["color"],
                 "confidence": gale_sig["confidence"], "kelly": gale_sig["kelly"],
-                "reason": gale_sig["reason"],
+                "reason": gale_sig["reason"], "expert_used": gale_sig.get("expert_used", ""),
             },
             "probs": {"red": 0.5, "black": 0.5, "white": 0.0},
             "regime": {"regime": regime["name"], "label": regime["label"], "strength": regime["strength"]},
             "tests": {"white": wh},
             "features": {
-                "llm_status": "", "llm_model": "", "kelly_pct": gale_sig["kelly"], "vote_count": 0,
-                "ensemble_modules": ENSEMBLE_MODULES, "threshold_used": _threshold_state["value"],
-                "regime_name": regime["name"], "miner_count": len(GLOBAL_MINED_STRATS),
-                "catalog_count": len(GLOBAL_CATALOG_STRATS), "votes_json": "[]",
+                "llm_status": "", "llm_model": "", "kelly_pct": gale_sig["kelly"],
+                "gate_red": 0, "gate_black": 0, "gate_white": 0,
+                "expert_red_conf": 0, "expert_black_conf": 0, "expert_white_conf": 0,
+                "threshold_used": _threshold_state["value"], "regime_name": regime["name"],
+                "miner_count": len(GLOBAL_MINED_STRATS), "catalog_count": len(GLOBAL_CATALOG_STRATS),
+                "cl_drift": cl_info["drift"], "cl_drift_mag": cl_info["drift_mag"],
+                "cl_last_relearn": cl_info["last_relearn"] or "", "votes_json": "[]",
             },
         }
     else:
@@ -1409,14 +1628,17 @@ def run_analysis_cycle() -> bool:
 
     log.info("═" * 90)
     log.info(
-        "LEVIATHAN | Rounds=%d | Regime=%s | Sinal=%s | Cor=%s | Edge=%.1f%% | Kelly=%.2f%%",
-        n, feat.get("regime_name", "?").upper(), s["action"].upper(), color_name(s["color"]),
-        s["confidence"] * 100, s["kelly"],
+        "MoE v2 | Rounds=%d | Regime=%s | Expert=%s | Sinal=%s | Cor=%s | Edge=%.1f%% | Kelly=%.2f%%",
+        n, feat.get("regime_name", "?").upper(), s.get("expert_used", "?").upper(),
+        s["action"].upper(), color_name(s["color"]), s["confidence"] * 100, s["kelly"],
     )
     log.info(
-        "Threshold=%.2f%% | Votos=%d/%d | Miner=%d | Catálogo=%d | LLM=%s",
-        feat.get("threshold_used", 0) * 100, feat.get("vote_count", 0), ENSEMBLE_MODULES,
-        feat.get("miner_count", 0), feat.get("catalog_count", 0), feat.get("llm_status", "-"),
+        "Gate R=%.2f B=%.2f W=%.2f | Threshold=%.2f%% | Miner=%d | Catálogo=%d | Drift=%s (%.4f) | CL=%s",
+        feat.get("gate_red", 0), feat.get("gate_black", 0), feat.get("gate_white", 0),
+        feat.get("threshold_used", 0) * 100,
+        feat.get("miner_count", 0), feat.get("catalog_count", 0),
+        "⚠️SIM" if feat.get("cl_drift") else "✅NÃO",
+        feat.get("cl_drift_mag", 0), feat.get("cl_last_relearn", "-"),
     )
     log.info("Fundamento: %s", s["reason"])
     log.info("═" * 90)
@@ -1435,18 +1657,20 @@ def run_analysis_cycle() -> bool:
 # ─────────────────────────── MAIN ────────────────────────────────────────────
 def main():
     log.info("═" * 90)
-    log.info("  BLAZE DOUBLE AI — LEVIATHAN ENGINE v1.3 (NEURAL CORE)")
-    log.info("  Ensemble Voting | Backpropagation | Adaptive Threshold | Live Memory")
+    log.info("  BLAZE DOUBLE AI — LEVIATHAN ENGINE v2.0 (MIXTURE OF EXPERTS)")
+    log.info("  MoE: Red Expert | Black Expert | White Expert | Gating Network")
+    log.info("  Continual Learning | Concept Drift Detection | Neural Meta-Learner")
     log.info("  Iniciado: %s", datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
     log.info("═" * 90)
 
-    init_tables() 
-    load_threshold_state() 
+    init_tables()
+    load_threshold_state()
 
     threading.Thread(target=miner_thread, daemon=True, name="Miner").start()
     threading.Thread(target=refresh_catalog, daemon=True, name="Catalog").start()
+    threading.Thread(target=continual_learner_thread, daemon=True, name="ContinualLearner").start()
 
-    log.info("Threads iniciadas: Minerador + Catálogo + Loop Principal")
+    log.info("Threads: Miner + Catalog + ContinualLearner + MainLoop")
 
     try:
         while True:
@@ -1456,7 +1680,8 @@ def main():
                 log.error("Erro no ciclo: %s", e, exc_info=True)
             time.sleep(LOOP_INTERVAL)
     except KeyboardInterrupt:
-        log.info("Leviathan encerrado.")
+        log.info("Leviathan MoE v2.0 encerrado.")
+
 
 if __name__ == "__main__":
     main()
