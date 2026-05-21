@@ -207,6 +207,9 @@
   /* ── FOOTER ── */
   .footer-bar{background:var(--surface);border-top:1px solid var(--border);padding:8px 24px;display:flex;gap:24px;flex-wrap:wrap;font-size:11px;color:var(--text-dim);align-items:center;}
   .footer-bar b{color:var(--text);}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:var(--text);font-size:11px;font-weight:700;cursor:pointer;transition:background .2s,border .2s;}
+  .btn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.2);}
+  .btn-reset{color:var(--red);border-color:rgba(255,34,85,.25);}
 </style>
 </head>
 <body>
@@ -378,6 +381,7 @@
       <div class="cl-row"><div class="cl-lbl">Último Relearn</div><div class="cl-val" id="clRL">–</div></div>
       <div class="stats-grid">
         <div class="stat-item"><div class="stat-val" id="stWins">–</div><div class="stat-lbl">Wins</div></div>
+        <div class="stat-item"><div class="stat-val" id="stLosses">–</div><div class="stat-lbl">Losses</div></div>
         <div class="stat-item"><div class="stat-val" id="stAcc">–</div><div class="stat-lbl">Acurácia</div></div>
         <div class="stat-item"><div class="stat-val" id="stTotal">–</div><div class="stat-lbl">Sinais</div></div>
         <div class="stat-item"><div class="stat-val" id="stRounds">–</div><div class="stat-lbl">Rounds</div></div>
@@ -392,6 +396,7 @@
   <span>D-S Fusion | ORACLE RL | 14 Experts | 18 Micro-Regimes</span>
   <span>Regime: <b id="fRegime">–</b></span>
   <span>Micro: <b id="fMicro">–</b></span>
+  <button class="btn btn-reset" onclick="resetStats()">Limpar histórico</button>
   <span style="margin-left:auto;" id="fTime">–</span>
 </div>
 
@@ -664,12 +669,15 @@ function renderSys(feat, sc) {
   $("clRL").textContent    = feat.cl_last_relearn || "–";
 
   const lev = (sc&&(sc.pantheon_v3||sc.leviathan_v2||sc.moe_v2||sc.leviathan||sc.intelligent))||{};
-  const wins=lev.wins||0, losses=lev.losses||0, tot=wins+losses;
+  const wins = lev.wins||0;
+  const losses = lev.losses||0;
+  const tot = wins + losses;
   const acc = tot>0 ? Math.round(wins/tot*100) : 0;
-  $("stWins").textContent  = wins;
-  $("stTotal").textContent = tot;
-  $("stAcc").textContent   = acc+"%";
-  $("stRounds").textContent= feat.total_rounds || sc?.total || "–";
+  $("stWins").textContent   = wins;
+  $("stLosses").textContent = losses;
+  $("stTotal").textContent  = tot;
+  $("stAcc").textContent    = acc+"%";
+  $("stRounds").textContent = feat.total_rounds || sc?.total || "–";
 }
 
 // ── Poll principal ───────────────────────────────────────────────────────────
@@ -754,6 +762,21 @@ function connectSSE() {
     es.addEventListener("new_result", () => poll());
     es.onerror = () => { es.close(); setTimeout(connectSSE, 5000); };
   } catch(e) { setTimeout(connectSSE, 5000); }
+}
+
+async function resetStats() {
+  if (!confirm('Deseja limpar o histórico de resultados exibidos? Isso não remove dados do DB, apenas reinicia as estatísticas.')) return;
+  try {
+    const res = await fetch(`${BASE}/api/reset_stats`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+    });
+    if (!res.ok) throw new Error('Erro no reset');
+    poll();
+    alert('Histórico reiniciado.');
+  } catch(e) {
+    alert('Falha ao resetar histórico: ' + e.message);
+  }
 }
 
 setOnline(false);
