@@ -98,6 +98,27 @@ _threshold_state = {
 }
 _threshold_lock = threading.Lock()
 
+CL_RELEARN_EVERY = 50       # rounds novos para re-aprender
+CL_DRIFT_THRESHOLD = 0.12   # diferença de distribuição que dispara re-learn
+
+_cl_lock = threading.Lock()
+CL_STATE = {
+    "last_db_count": 0,
+    "color_dist_full": {0: 0.07, 1: 0.465, 2: 0.465},
+    "color_dist_500": {0: 0.07, 1: 0.465, 2: 0.465},
+    "color_dist_2000": {0: 0.07, 1: 0.465, 2: 0.465},
+    "drift_detected": False,
+    "drift_magnitude": 0.0,
+    "last_relearn_ts": "",
+    "transition_matrix": {},
+    "ngram_cache": {},
+    "expert_stats": {
+        "red":   {"total": 0, "wins": 0, "by_regime": {}},
+        "black": {"total": 0, "wins": 0, "by_regime": {}},
+        "white": {"total": 0, "wins": 0, "by_regime": {}},
+    },
+}
+
 _pattern_perf: dict = defaultdict(lambda: deque(maxlen=40))
 _perf_lock = threading.Lock()
 
@@ -231,12 +252,23 @@ def init_tables():
         mode        TEXT DEFAULT 'leviathan_v2',
         pattern_key TEXT DEFAULT ''
     );
+    CREATE TABLE IF NOT EXISTS cl_snapshots (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts          TEXT NOT NULL,
+        db_count    INTEGER,
+        dist_full   TEXT,
+        dist_500    TEXT,
+        dist_2000   TEXT,
+        drift_mag   REAL,
+        expert_stats TEXT
+    );
     CREATE TABLE IF NOT EXISTS leviathan_meta (
         key TEXT PRIMARY KEY, value TEXT
     );
     """)
     conn.commit()
     _add_column_safe(conn, "analysis_snapshots", "banca_level", "TEXT DEFAULT 'NORMAL'")
+    _add_column_safe(conn, "prediction_performance", "expert_used", "TEXT DEFAULT ''")
     conn.close()
 
     for k, v in {
@@ -548,6 +580,175 @@ def mine_local_strategies(colors):
     with _miner_lock:
         GLOBAL_MINED_STRATS = strats[:100]
     log.info("Minerador: %d padrões Wilson-válidos", len(strats[:100]))
+
+def _compute_color_dist(colors):
+    n = len(colors)
+    if n == 0:
+        return {0: 0.07, 1: 0.465, 2: 0.465}
+    counts = defaultdict(int)
+    for c in colors:
+        counts[c] += 1
+    return {k: round(counts[k] / n, 4) for k in (0, 1, 2)}
+
+
+def _compute_transition_matrix(colors):
+    """Calcula P(next | current) para todas as cores incluindo branco."""
+    matrix = defaultdict(lambda: defaultdict(int))
+    for i in range(len(colors) - 1):
+        matrix[colors[i]][colors[i + 1]] += 1
+    result = {}
+    for from_c, to_counts in matrix.items():
+        total = sum(to_counts.values())
+        result[from_c] = {to_c: round(cnt / total, 4) for to_c, cnt in to_counts.items()}
+    return result
+
+
+def _compute_ngram_cache(colors, max_len=6):
+    """Computa n-gramas do DB completo para uso pelos experts."""
+    cache = defaultdict(lambda: {1: 0, 2: 0, 0: 0, "total": 0})
+    n = len(colors)
+    for length in range(2, max_len + 1):
+        for i in range(length - 1, n - 1):
+            seq = tuple(colors[i - length + 1: i + 1])
+            next_c = colors[i + 1]
+            cache[seq][next_c] += 1
+            cache[seq]["total"] += 1
+    return dict(cache)
+
+
+def _detect_concept_drift(old_dist, new_dist):
+    """KL Divergence simplificada entre distribuições."""
+    magnitude = sum(
+        abs(new_dist.get(k, 0) - old_dist.get(k, 0)) for k in (0, 1, 2)
+    )
+    return magnitude
+
+
+def continual_learner_thread():
+    """Thread que relê o DB completo periodicamente e re-adapta todos os experts."""
+    global CL_STATE
+    log.info("🧬 Continual Learner iniciado.")
+
+    while True:
+        try:
+            conn = _conn()
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM results_raw")
+            total_count = c.fetchone()[0]
+
+            with _cl_lock:
+                last_count = CL_STATE["last_db_count"]
+
+            # Só re-aprende se tiver N novos rounds OU no primeiro boot
+            if total_count - last_count >= CL_RELEARN_EVERY or last_count == 0:
+                log.info("🧬 Continual Learner: relendo %d rounds do DB...", total_count)
+
+                c.execute("SELECT color FROM results_raw ORDER BY id ASC")
+                all_colors = [r[0] for r in c.fetchall()]
+
+                if len(all_colors) < 100:
+                    conn.close()
+                    time.sleep(15)
+                    continue
+
+                # Distribuições por janela
+                dist_full = _compute_color_dist(all_colors)
+                dist_2000 = _compute_color_dist(all_colors[-2000:])
+                dist_500 = _compute_color_dist(all_colors[-500:])
+
+                # Matriz de transição
+                transition = _compute_transition_matrix(all_colors)
+
+                # N-grama cache (DB completo)
+                ngram = _compute_ngram_cache(all_colors, max_len=6)
+
+                # Concept Drift Detection
+                with _cl_lock:
+                    old_dist = CL_STATE["color_dist_500"].copy()
+
+                drift_mag = _detect_concept_drift(old_dist, dist_500)
+                drift_detected = drift_mag >= CL_DRIFT_THRESHOLD
+
+                if drift_detected:
+                    log.warning(
+                        "⚠️ CONCEPT DRIFT DETECTADO! Magnitude=%.4f — Re-calibrando experts...",
+                        drift_mag
+                    )
+
+                # Estatísticas dos experts por regime (lendo prediction_performance)
+                c.execute("""
+                    SELECT pp.predicted, pp.actual, pp.correct, pp.expert_used,
+                           a.regime
+                    FROM prediction_performance pp
+                    LEFT JOIN analysis_snapshots a ON a.id = pp.snapshot_id
+                    WHERE pp.action IN ('win', 'loss')
+                    ORDER BY pp.id DESC
+                    LIMIT 2000
+                """)
+                perf_rows = c.fetchall()
+
+                expert_stats = {
+                    "red":   {"total": 0, "wins": 0, "by_regime": defaultdict(lambda: {"total": 0, "wins": 0})},
+                    "black": {"total": 0, "wins": 0, "by_regime": defaultdict(lambda: {"total": 0, "wins": 0})},
+                    "white": {"total": 0, "wins": 0, "by_regime": defaultdict(lambda: {"total": 0, "wins": 0})},
+                }
+
+                for predicted, actual, correct, expert_used, regime_label in perf_rows:
+                    exp_key = {1: "red", 2: "black", 0: "white"}.get(predicted, "red")
+                    regime_key = regime_label or "balanced"
+                    expert_stats[exp_key]["total"] += 1
+                    expert_stats[exp_key]["by_regime"][regime_key]["total"] += 1
+                    if correct:
+                        expert_stats[exp_key]["wins"] += 1
+                        expert_stats[exp_key]["by_regime"][regime_key]["wins"] += 1
+
+                # Salvar snapshot CL no DB
+                conn.execute(
+                    """INSERT INTO cl_snapshots
+                       (ts, db_count, dist_full, dist_500, dist_2000, drift_mag, expert_stats)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        datetime.now(timezone.utc).isoformat(),
+                        total_count,
+                        json.dumps(dist_full),
+                        json.dumps(dist_500),
+                        json.dumps(dist_2000),
+                        drift_mag,
+                        json.dumps({
+                            k: {"total": v["total"], "wins": v["wins"]}
+                            for k, v in expert_stats.items()
+                        }),
+                    )
+                )
+                conn.commit()
+
+                # Atualizar estado global
+                with _cl_lock:
+                    CL_STATE["last_db_count"] = total_count
+                    CL_STATE["color_dist_full"] = dist_full
+                    CL_STATE["color_dist_500"] = dist_500
+                    CL_STATE["color_dist_2000"] = dist_2000
+                    CL_STATE["drift_detected"] = drift_detected
+                    CL_STATE["drift_magnitude"] = drift_mag
+                    CL_STATE["last_relearn_ts"] = datetime.now().strftime("%H:%M:%S")
+                    CL_STATE["transition_matrix"] = transition
+                    CL_STATE["ngram_cache"] = ngram
+                    CL_STATE["expert_stats"] = expert_stats
+
+                log.info(
+                    "🧬 CL Completo | Dist500=%s | Drift=%.4f %s | Transições=%d | NGrams=%d",
+                    dist_500, drift_mag,
+                    "⚠️ DRIFT!" if drift_detected else "✅ Estável",
+                    len(transition),
+                    len(ngram),
+                )
+
+            conn.close()
+
+        except Exception as e:
+            log.error("Erro no Continual Learner: %s", e, exc_info=True)
+
+        time.sleep(10)
 
 def miner_thread():
     last_count = 0
