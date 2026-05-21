@@ -36,6 +36,17 @@ from typing import Optional
 
 import requests
 
+from agents.agent_sybil import expert_sybil
+from agents.agent_chaos import expert_chaos
+from agents.agent_hermes import expert_hermes
+from agents.agent_oracle import (
+    oracle_get_weights,
+    oracle_learn,
+    oracle_save_state,
+    oracle_load_state,
+    _oracle_state,
+)
+
 try:
     from notificador import notificar_sinal
     TELEGRAM_OK = True
@@ -66,7 +77,7 @@ BANCA_RECOVERY_WINS   = 4   # precisam 4 wins para sair do lockdown
 
 # Votação — mais exigente
 MIN_VOTES_TO_ENTER  = 3   # mínimo 3 experts concordando (antes era 2)
-NUM_EXPERTS         = 9
+NUM_EXPERTS         = 12
 CONFIDENCE_FLOOR    = 0.67  # edge mínimo após calibração
 
 # Minerador
@@ -190,7 +201,7 @@ def get_neural_weights():
         except: pass
     return _DEFAULT_WEIGHTS.copy()
 
-def update_neural_weights(module_votes: dict, actual_color: int, won: bool):
+def update_neural_weights(module_votes: dict, actual_color: int, won: bool, colors=None, regime=None):
     """
     LÓGICA CORRETA:
     - Se won=True: o módulo que votou em actual_color acertou → recompensa
@@ -219,6 +230,10 @@ def update_neural_weights(module_votes: dict, actual_color: int, won: bool):
             weights[mod_name] = round(max(0.1, min(3.5, weights[mod_name] + delta)), 4)
 
         set_sys_config("neural_weights_v2", json.dumps(weights))
+        if colors is not None and regime is not None:
+            oracle_learn(won, colors, regime)
+            if _oracle_state["total_updates"] % 20 == 0:
+                oracle_save_state()
         log.info("🧠 Pesos v2: %s", {k: v for k, v in weights.items()})
 
 
@@ -1100,6 +1115,9 @@ def run_ensemble(colors, regime, last_round=None):
         expert_alternation(colors, regime),  # 7
         expert_volatility(colors, regime),   # 8
         expert_antidrift(colors, regime),    # 9
+        expert_sybil(colors, regime),        # 10 — NOVO
+        expert_chaos(colors, regime),        # 11 — NOVO
+        expert_hermes(colors, regime),       # 12 — NOVO
     ]
 
     # ── FASE 1: Processar VETOs ─────────────────────────────────────────────
@@ -1115,7 +1133,14 @@ def run_ensemble(colors, regime, last_round=None):
     hot_bonus = sum(m.get("hot_bonus", 0.0) for m in results)
 
     # ── FASE 3: Votação ponderada pelos pesos neurais ───────────────────────
-    neural_weights = get_neural_weights()
+    neural_weights_base  = get_neural_weights()           # pesos aprendidos por gradiente
+    oracle_weights       = oracle_get_weights(colors, regime)  # pesos aprendidos por RL
+
+    # Combina: base * oracle (multiplicativo = ambos precisam concordar)
+    neural_weights = {
+        k: round(neural_weights_base.get(k, 1.0) * oracle_weights.get(k, 1.0), 3)
+        for k in set(list(neural_weights_base.keys()) + list(oracle_weights.keys()))
+    }
     scores = {1: 0.0, 2: 0.0}
     vote_counts = {1: 0, 2: 0}
     active_votes = []
@@ -1495,7 +1520,13 @@ def validate_previous(current_color, current_round_id):
                         module_votes[src] = {"vote": v.get("vote"), "confidence": v.get("conf", 0.5)}
 
                 # CORREÇÃO: passa actual_color E won (não inverte mais)
-                update_neural_weights(module_votes, current_color if not won else pred_color, won)
+                update_neural_weights(
+                    module_votes,
+                    current_color if not won else pred_color,
+                    won,
+                    colors,
+                    regime,
+                )
             except: pass
 
             with _threshold_lock:
@@ -1658,6 +1689,7 @@ def main():
 
     init_tables()
     load_threshold_state()
+    oracle_load_state()
 
     threading.Thread(target=miner_thread, daemon=True, name="Miner").start()
     threading.Thread(target=refresh_catalog, daemon=True, name="Catalog").start()

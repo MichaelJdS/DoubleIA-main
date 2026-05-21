@@ -13,6 +13,10 @@ import os
 import webbrowser
 from pathlib import Path
 
+from analisador import load_sequence
+from pantheon_engine import run_pantheon as run_ensemble, pantheon_init, pantheon_learn
+from pantheon_engine import detect_micro_regime as detect_regime
+
 PYTHON = sys.executable
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -97,6 +101,8 @@ def main():
     print()
     print(" Pressione Ctrl+C para encerrar tudo.")
     print("=" * 60)
+
+    pantheon_init(colors=load_sequence(5000))
 
     try:
         while True:
