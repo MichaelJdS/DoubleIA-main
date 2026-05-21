@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Simulador de Apostas — Blaze Double AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a25;--border:#2a2a3a;--text:#e8e6f0;--muted:#7a7890;--accent:#7c3aed;--accent2:#5b21b6;--red:#e05555;--black:#1e2535;--white:#efe5d3;--green:#22c55e;--yellow:#f59e0b;--radius:14px;--shadow:0 8px 32px rgba(0,0,0,.6);}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;}
+.app{max-width:1100px;margin:0 auto;padding:24px 16px;display:grid;gap:20px;}
+h1{font-size:26px;font-weight:800;background:linear-gradient(135deg,#a78bfa,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-1px;}
+.subtitle{font-size:13px;color:var(--muted);margin-top:4px;}
+.header{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;}
+.badge-live{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);font-size:12px;font-weight:700;color:#a78bfa;}
+.dot-live{width:7px;height:7px;border-radius:50%;background:#a78bfa;animation:pulse 1.5s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);}
+.kpi .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+.kpi .val{font-size:28px;font-weight:800;letter-spacing:-1px;}
+.kpi .sub{font-size:11px;color:var(--muted);margin-top:6px;}
+.val.profit{color:var(--green);}
+.val.loss{color:var(--red);}
+.val.neutral{color:#a78bfa;}
+.grid2{display:grid;grid-template-columns:1fr 1.2fr;gap:20px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:22px;box-shadow:var(--shadow);}
+.card h3{font-size:15px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+.strat-list{display:grid;gap:10px;}
+.strat-item{padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:.18s;position:relative;overflow:hidden;}
+.strat-item:hover{border-color:rgba(124,58,237,.5);transform:translateY(-1px);}
+.strat-item.selected{border-color:#7c3aed;background:rgba(124,58,237,.08);}
+.strat-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);opacity:0;transition:.18s;}
+.strat-item.selected::before{opacity:1;}
+.strat-name{font-size:13px;font-weight:600;margin-bottom:4px;}
+.strat-detail{font-size:11px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;}
+.strat-acc{font-weight:700;color:var(--green);}
+.strat-acc.mid{color:var(--yellow);}
+.seq{display:flex;gap:4px;align-items:center;}
+.ball{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:700;flex-shrink:0;}
+.ball.V{background:var(--red);color:#fff;}
+.ball.P{background:#1e2535;color:#9ca3af;border:1px solid #374151;}
+.ball.B{background:var(--white);color:#1a1917;}
+.arrow{font-size:14px;color:var(--muted);}
+.ball.target{width:26px;height:26px;font-size:10px;box-shadow:0 0 12px rgba(124,58,237,.5);border:2px solid #7c3aed;}
+.bet-panel{display:grid;gap:16px;}
+.inp-group{display:flex;flex-direction:column;gap:8px;}
+label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+input[type=number]{padding:14px 16px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:18px;font-weight:700;width:100%;transition:.18s;}
+input[type=number]:focus{outline:none;border-color:#7c3aed;box-shadow:0 0 0 3px rgba(124,58,237,.2);}
+.btns{display:grid;gap:10px;}
+.btn{padding:14px 20px;border-radius:10px;border:none;font-size:14px;font-weight:700;cursor:pointer;transition:.18s;display:flex;align-items:center;justify-content:center;gap:8px;}
+.btn:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.4);}
+.btn-sim{background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;}
+.btn-sim:hover{background:linear-gradient(135deg,#8b5cf6,#6d28d9);}
+.btn-clear{background:rgba(239,68,68,.12);border:1.5px solid rgba(239,68,68,.3);color:#f87171;}
+.btn-clear:hover{background:rgba(239,68,68,.2);}
+.result-box{padding:18px;border-radius:12px;border:1.5px solid var(--border);background:var(--surface2);min-height:80px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;transition:.3s;}
+.result-box.win{border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.06);}
+.result-box.loss{border-color:rgba(224,85,85,.5);background:rgba(224,85,85,.06);}
+.result-box.tie{border-color:rgba(239,229,211,.3);background:rgba(239,229,211,.04);}
+.result-label{font-size:22px;font-weight:800;}
+.result-amount{font-size:14px;color:var(--muted);}
+.hist-section{display:grid;gap:12px;}
+.hist-header{display:flex;justify-content:space-between;align-items:center;}
+.hist-table{width:100%;border-collapse:collapse;}
+.hist-table th{text-align:left;padding:10px 12px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);}
+.hist-table td{padding:10px 12px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.04);}
+.hist-table tr:last-child td{border-bottom:none;}
+.tag{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700;}
+.tag.win{background:rgba(34,197,94,.15);color:#4ade80;}
+.tag.loss{background:rgba(239,68,68,.15);color:#f87171;}
+.tag.tie{background:rgba(239,229,211,.1);color:var(--white);}
+.empty{text-align:center;color:var(--muted);padding:32px;font-size:13px;}
+.shine{animation:shine .6s ease-out;}
+@keyframes shine{0%{transform:scale(1.02)}50%{transform:scale(.98)}100%{transform:scale(1)}}
+@media(max-width:700px){.grid2,.grid3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div>
+      <h1>🎲 Simulador de Apostas</h1>
+      <p class="subtitle">Estratégias calibradas no banco real · 261 rodadas analisadas</p>
+    </div>
+    <span class="badge-live"><span class="dot-live"></span>BLAZE DOUBLE AI</span>
+  </header>
+
+  <div class="grid3">
+    <div class="kpi">
+      <div class="label">Saldo Virtual</div>
+      <div class="val neutral" id="kpiSaldo">R$ 0,00</div>
+      <div class="sub">acumulado na sessão</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Taxa de Acerto</div>
+      <div class="val neutral" id="kpiTaxa">—</div>
+      <div class="sub" id="kpiTaxaSub">aguardando apostas</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Resultado</div>
+      <div class="val neutral" id="kpiResult">—</div>
+      <div class="sub" id="kpiResultSub">nenhuma aposta ainda</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>🧠 Estratégias do Banco</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:12px;">Padrões validados em 261 rodadas reais · clique para selecionar</p>
+      <div class="strat-list" id="stratList"></div>
+    </div>
+
+    <div class="card">
+      <h3>💰 Painel de Aposta</h3>
+      <div class="bet-panel">
+        <div class="inp-group">
+          <label>Valor da Aposta (R$)</label>
+          <input type="number" id="betAmount" placeholder="0,00" min="0.01" step="0.01" value="10">
+        </div>
+        <div id="selectedInfo" style="padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--muted);">
+          ← Selecione uma estratégia ao lado
+        </div>
+        <div class="btns">
+          <button class="btn btn-sim" id="simBtn" onclick="simulate()">⚡ Simular Aposta</button>
+          <button class="btn btn-clear" onclick="clearHistory()">🗑️ Limpar Histórico</button>
+        </div>
+        <div class="result-box" id="resultBox">
+          <span style="font-size:13px;color:var(--muted)">Aguardando simulação...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card hist-section">
+    <div class="hist-header">
+      <h3 style="margin:0">📋 Histórico de Simulações</h3>
+      <span id="histCount" style="font-size:12px;color:var(--muted)">0 apostas</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="hist-table">
+        <thead><tr><th>#</th><th>Estratégia</th><th>Valor</th><th>Aposta</th><th>Resultado</th><th>Lucro/Perda</th><th>Saldo</th></tr></thead>
+        <tbody id="histBody"><tr><td colspan="7" class="empty">Nenhuma simulação ainda. Selecione uma estratégia e simule!</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let STRATEGIES = [];
+
+async function loadStrategies() {
+  const listEl = document.getElementById("stratList");
+  listEl.innerHTML = '<div style="color:var(--muted);padding:10px;">Carregando dados em tempo real...</div>';
+  try {
+    const res = await fetch('http://localhost:8765/strategy_ranking');
+    const data = await res.json();
+    if (data.ranking && data.ranking.length > 0) {
+      STRATEGIES = data.ranking.map((r, i) => ({
+        id: i + 1,
+        nome: r.nome,
+        seq: r.seq.map(c => c===1?"V":c===2?"P":"B"),
+        alvo: r.alvo===1?"V":r.alvo===2?"P":"B",
+        acc: r.acc,
+        signals: r.matches,
+        desc: r.seq.map(c => c===1?"V":c===2?"P":"B").join("-") + " → Apostar " + (r.alvo===1?"VERMELHO":r.alvo===2?"PRETO":"BRANCO"),
+        payout: 2.0
+      }));
+      
+      // Filtrar apenas com win rate > 50%
+      STRATEGIES = STRATEGIES.filter(s => s.acc > 50).slice(0, 15);
+      
+      // Atualiza o subtítulo para indicar dinâmico
+      document.querySelector(".subtitle").textContent = "Estratégias calibradas no banco real · TEMPO REAL";
+      renderStrategies();
+    } else {
+      listEl.innerHTML = '<div style="color:var(--muted);padding:10px;">Nenhuma estratégia forte detectada ainda. Aguarde mais rodadas.</div>';
+    }
+  } catch (e) {
+    listEl.innerHTML = '<div style="color:var(--red);padding:10px;">❌ Erro ao conectar com o backend.<br>Certifique-se que o coletor.py está rodando.</div>';
+  }
+}
+
+const BALL_COLOR = { V: "red", P: "black", B: "white" };
+const NAME_MAP = { V: "Vermelho", P: "Preto", B: "Branco" };
+
+let selectedStrategy = null;
+let history = [];
+let balance = 0;
+
+function renderStrategies() {
+  const el = document.getElementById("stratList");
+  el.innerHTML = STRATEGIES.map(s => {
+    const acc = s.acc;
+    const accClass = acc >= 75 ? "" : acc >= 65 ? "mid" : "mid";
+    const seqHtml = s.seq.map(c =>
+      `<div class="ball ${BALL_COLOR[c]}">${c}</div>`
+    ).join("") + `<span class="arrow">→</span><div class="ball ${BALL_COLOR[s.alvo]} target">${s.alvo}</div>`;
+    return `
+      <div class="strat-item" id="strat-${s.id}" onclick="selectStrategy(${s.id})">
+        <div class="strat-name">${s.nome}</div>
+        <div class="strat-detail">
+          <span class="seq">${seqHtml}</span>
+          <span class="strat-acc ${accClass}">${acc.toFixed(1)}%</span>
+          <span>${s.signals} sinais</span>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function selectStrategy(id) {
+  selectedStrategy = STRATEGIES.find(s => s.id === id);
+  document.querySelectorAll(".strat-item").forEach(el => el.classList.remove("selected"));
+  document.getElementById(`strat-${id}`).classList.add("selected");
+  const s = selectedStrategy;
+  document.getElementById("selectedInfo").innerHTML = `
+    <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:6px;">${s.nome}</div>
+    <div style="color:var(--muted);margin-bottom:4px;">${s.desc}</div>
+    <div style="display:flex;gap:12px;font-size:12px;">
+      <span>🎯 Acerto: <strong style="color:var(--green)">${s.acc.toFixed(1)}%</strong></span>
+      <span>📊 Sinais: <strong>${s.signals}</strong></span>
+      <span>💎 Payout: <strong>2x</strong></span>
+    </div>`;
+}
+
+function simulate() {
+  if (!selectedStrategy) {
+    alert("Selecione uma estratégia primeiro!");
+    return;
+  }
+  const amt = parseFloat(document.getElementById("betAmount").value);
+  if (!amt || amt <= 0) {
+    alert("Digite um valor de aposta válido!");
+    return;
+  }
+  const s = selectedStrategy;
+  // Simulate using strategy win rate with white protection (6.7% white)
+  const roll = Math.random() * 100;
+  const whitePct = 6.67;
+  let outcome, profit, resultClass;
+  if (roll < whitePct) {
+    outcome = "tie";
+    profit = 0;
+    resultClass = "tie";
+  } else {
+    const adjWinRate = s.acc;
+    const adjRoll = Math.random() * 100;
+    if (adjRoll < adjWinRate) {
+      outcome = "win";
+      profit = amt * (s.payout - 1);
+      resultClass = "win";
+    } else {
+      outcome = "loss";
+      profit = -amt;
+      resultClass = "loss";
+    }
+  }
+  balance += profit;
+  const entry = {
+    num: history.length + 1,
+    strat: s.nome,
+    amount: amt,
+    alvo: NAME_MAP[s.alvo],
+    outcome,
+    profit,
+    balance: balance
+  };
+  history.unshift(entry);
+  renderResult(outcome, profit, amt, resultClass, s.alvo);
+  renderHistory();
+  updateKPIs();
+}
+
+function renderResult(outcome, profit, amt, cls, alvo) {
+  const box = document.getElementById("resultBox");
+  box.className = "result-box " + cls;
+  const icons = { win: "🟢", loss: "🔴", tie: "⚪" };
+  const labels = {
+    win: `GANHOU! +R$ ${profit.toFixed(2)}`,
+    loss: `PERDEU! -R$ ${Math.abs(profit).toFixed(2)}`,
+    tie: "BRANCO — Empate (Protegido)"
+  };
+  box.innerHTML = `
+    <div class="result-label">${icons[outcome]} ${labels[outcome]}</div>
+    <div class="result-amount">Aposta: R$ ${amt.toFixed(2)} em ${NAME_MAP[alvo]}</div>`;
+  box.classList.add("shine");
+  setTimeout(() => box.classList.remove("shine"), 600);
+}
+
+function renderHistory() {
+  const tbody = document.getElementById("histBody");
+  const count = document.getElementById("histCount");
+  count.textContent = `${history.length} aposta${history.length !== 1 ? "s" : ""}`;
+  if (!history.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma simulação ainda.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = history.map(h => {
+    const tagCls = h.outcome;
+    const tagLabel = { win: "GANHOU", loss: "PERDEU", tie: "EMPATE" }[h.outcome];
+    const profitStr = h.profit > 0 ? `+R$ ${h.profit.toFixed(2)}` : h.profit < 0 ? `-R$ ${Math.abs(h.profit).toFixed(2)}` : "R$ 0,00";
+    const profitColor = h.profit > 0 ? "var(--green)" : h.profit < 0 ? "var(--red)" : "var(--white)";
+    const balColor = h.balance >= 0 ? "var(--green)" : "var(--red)";
+    return `<tr>
+      <td style="color:var(--muted)">${h.num}</td>
+      <td style="font-weight:600">${h.strat}</td>
+      <td>R$ ${h.amount.toFixed(2)}</td>
+      <td>${h.alvo}</td>
+      <td><span class="tag ${tagCls}">${tagLabel}</span></td>
+      <td style="font-weight:700;color:${profitColor}">${profitStr}</td>
+      <td style="font-weight:700;color:${balColor}">R$ ${h.balance.toFixed(2)}</td>
+    </tr>`;
+  }).join("");
+}
+
+function updateKPIs() {
+  const wins = history.filter(h => h.outcome === "win").length;
+  const losses = history.filter(h => h.outcome === "loss").length;
+  const total = wins + losses;
+  const taxa = total > 0 ? ((wins / total) * 100).toFixed(1) + "%" : "—";
+  const kpiSaldo = document.getElementById("kpiSaldo");
+  const kpiTaxa = document.getElementById("kpiTaxa");
+  const kpiResult = document.getElementById("kpiResult");
+  kpiSaldo.textContent = `R$ ${balance.toFixed(2)}`;
+  kpiSaldo.className = "val " + (balance > 0 ? "profit" : balance < 0 ? "loss" : "neutral");
+  kpiTaxa.textContent = taxa;
+  kpiTaxa.className = "val " + (total > 0 && wins / total > 0.5 ? "profit" : total > 0 ? "loss" : "neutral");
+  document.getElementById("kpiTaxaSub").textContent = `${wins}W / ${losses}L / ${history.filter(h=>h.outcome==="tie").length}E`;
+  kpiResult.textContent = `${history.length} aposta${history.length !== 1 ? "s" : ""}`;
+  kpiResult.className = "val neutral";
+  document.getElementById("kpiResultSub").textContent = balance > 0 ? "em lucro 🔥" : balance < 0 ? "em perda 📉" : "no zero";
+}
+
+function clearHistory() {
+  if (!history.length) return;
+  if (!confirm("Limpar todo o histórico de simulações?")) return;
+  history = [];
+  balance = 0;
+  document.getElementById("resultBox").className = "result-box";
+  document.getElementById("resultBox").innerHTML = '<span style="font-size:13px;color:var(--muted)">Aguardando simulação...</span>';
+  renderHistory();
+  updateKPIs();
+  document.getElementById("kpiSaldo").textContent = "R$ 0,00";
+  document.getElementById("kpiSaldo").className = "val neutral";
+  document.getElementById("kpiTaxa").textContent = "—";
+  document.getElementById("kpiTaxa").className = "val neutral";
+  document.getElementById("kpiTaxaSub").textContent = "aguardando apostas";
+  document.getElementById("kpiResult").textContent = "—";
+  document.getElementById("kpiResultSub").textContent = "nenhuma aposta ainda";
+}
+
+loadStrategies();
+</script>
+</body>
+</html>

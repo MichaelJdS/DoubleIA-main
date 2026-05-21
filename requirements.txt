@@ -1,0 +1,7 @@
+# ─────────────────────────────────────────────────────────────────
+#  BLAZE DOUBLE AI — Dependências Python
+#  Instalar com: pip install -r requirements.txt
+# ─────────────────────────────────────────────────────────────────
+
+requests>=2.31.0
+websockets>=12.0

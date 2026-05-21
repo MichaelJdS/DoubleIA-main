@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leviathan Dashboard v1.2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --bg2: #121933;
+      --panel: rgba(18, 25, 51, 0.72);
+      --panel-2: rgba(26, 35, 68, 0.78);
+      --border: rgba(255,255,255,.08);
+      --text: #eef2ff;
+      --muted: #9aa6d1;
+      --soft: #7c89b6;
+      --green: #23c55e;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --blue: #60a5fa;
+      --whiteball: #f8fafc;
+      --shadow: 0 20px 60px rgba(0,0,0,.35);
+      --radius: 22px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin:0; padding:0; background: radial-gradient(circle at top, #172348 0%, #0b1020 50%, #070b16 100%); color:var(--text); font-family:Inter,system-ui,sans-serif; }
+    body { min-height:100vh; }
+    .wrap { max-width: 1550px; margin: 0 auto; padding: 24px; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:22px; flex-wrap:wrap; }
+    .brand { display:flex; align-items:center; gap:14px; }
+    .logo {
+      width:50px; height:50px; border-radius:16px;
+      background: linear-gradient(135deg,#60a5fa,#8b5cf6 55%,#22c55e);
+      box-shadow: 0 10px 30px rgba(96,165,250,.25);
+      display:grid; place-items:center; font-weight:800; color:white; font-size:20px;
+    }
+    h1 { margin:0; font-size: clamp(22px, 3vw, 34px); }
+    .sub { color:var(--muted); font-size:14px; margin-top:4px; }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; }
+    button, select, input {
+      border:none; outline:none; color:var(--text);
+      background: var(--panel-2); border:1px solid var(--border);
+      border-radius: 14px; padding: 11px 14px; font-weight:600;
+    }
+    button { cursor:pointer; transition:.2s ease; }
+    button:hover { transform: translateY(-1px); filter: brightness(1.06); }
+    .btn-primary { background: linear-gradient(135deg,#2563eb,#4f46e5); }
+    .btn-danger { background: linear-gradient(135deg,#dc2626,#b91c1c); }
+    .grid-kpis {
+      display:grid; gap:16px;
+      grid-template-columns: repeat(6, minmax(0,1fr));
+      margin-bottom:18px;
+    }
+    .card {
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+      border:1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding:18px;
+    }
+    .kpi .label { color:var(--muted); font-size:13px; margin-bottom:8px; }
+    .kpi .value { font-size: clamp(20px,2.2vw,32px); font-weight:800; }
+    .kpi .mini { margin-top:8px; color:var(--soft); font-size:12px; }
+    .content {
+      display:grid; gap:16px;
+      grid-template-columns: 1.35fr .95fr;
+      margin-bottom:16px;
+    }
+    .stack { display:grid; gap:16px; }
+    .section-title {
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      margin-bottom:14px;
+    }
+    .section-title h2 { margin:0; font-size:18px; }
+    .pill {
+      padding:6px 10px; border-radius:999px; font-size:12px; font-weight:700;
+      background:rgba(255,255,255,.06); color:var(--muted); border:1px solid var(--border);
+    }
+    .tape { display:flex; flex-wrap:wrap; gap:10px; }
+    .ball {
+      width:42px; height:42px; border-radius:50%; display:grid; place-items:center;
+      font-weight:800; font-size:13px; border:1px solid rgba(255,255,255,.12);
+      box-shadow: inset 0 0 12px rgba(255,255,255,.08), 0 8px 20px rgba(0,0,0,.25);
+    }
+    .c-red { background: radial-gradient(circle at 30% 30%, #ff7b7b, #b91c1c); }
+    .c-black { background: radial-gradient(circle at 30% 30%, #59637d, #111827); }
+    .c-white { background: radial-gradient(circle at 30% 30%, #ffffff, #cbd5e1); color:#111827; }
+    .signal-box { display:grid; gap:12px; grid-template-columns: repeat(3, 1fr); }
+    .signal-box { display:grid; gap:12px; grid-template-columns: repeat(3, 1fr); }
+    .signal-option {
+      border-radius:18px; padding:16px; border:1px solid var(--border);
+      background:rgba(255,255,255,.04);
+    }
+    .signal-option .name { color:var(--muted); font-size:13px; }
+    .signal-option .pct { font-size:28px; font-weight:800; margin-top:8px; }
+    .main-signal {
+      margin-top:14px; border-radius:18px; padding:18px;
+      background: linear-gradient(135deg, rgba(37,99,235,.18), rgba(79,70,229,.18));
+      border:1px solid rgba(96,165,250,.25);
+    }
+    .signal-action { font-size:22px; font-weight:800; margin-bottom:8px; }
+    .reason { color:var(--muted); line-height:1.5; }
+    .split2 { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    .kv { display:grid; gap:10px; }
+    .kv .row { display:flex; justify-content:space-between; gap:10px; font-size:14px; border-bottom:1px solid rgba(255,255,255,.05); padding-bottom:8px; }
+    .kv .row span:first-child { color:var(--muted); }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:10px 8px; border-bottom:1px solid rgba(255,255,255,.05); font-size:13px; }
+    th { color:var(--muted); font-weight:600; }
+    .status-dot {
+      width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:8px;
+      background:#64748b;
+    }
+    .online { background:#22c55e; box-shadow:0 0 16px rgba(34,197,94,.65); }
+    .offline { background:#ef4444; box-shadow:0 0 16px rgba(239,68,68,.65); }
+    .bar-wrap { height:10px; border-radius:999px; background:rgba(255,255,255,.06); overflow:hidden; margin-top:8px; }
+    .bar { height:100%; border-radius:999px; background:linear-gradient(90deg,#22c55e,#3b82f6); }
+    .rank-item, .vote-item {
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      padding:12px 0; border-bottom:1px solid rgba(255,255,255,.05);
+    }
+    .seq { color:var(--muted); font-size:13px; }
+    .score { font-weight:800; }
+    .footer-note { margin-top:12px; color:var(--soft); font-size:12px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    @media (max-width: 1200px) {
+      .grid-kpis { grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .content { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .grid-kpis { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .signal-box, .split2 { grid-template-columns: 1fr; }
+      .wrap { padding: 14px; }
+      .card { padding:14px; border-radius:18px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">L</div>
+        <div>
+          <h1>Leviathan Dashboard</h1>
+          <div class="sub">Painel operacional em tempo real do coletor + analisador</div>
+        </div>
+      </div>
+      <div class="actions">
+        <select id="modeSelect">
+          <option value="intelligent">Modo Intelligent</option>
+          <option value="standard">Modo Standard</option>
+        </select>
+        <select id="galesSelect">
+          <option value="0">Gales: 0</option>
+          <option value="1">Gales: 1</option>
+          <option value="2">Gales: 2</option>
+        </select>
+        <button class="btn-primary" id="applyConfigBtn">Aplicar</button>
+        <button class="btn-danger" id="resetStatsBtn">Resetar W/L</button>
+      </div>
+    </div>
+
+    <div class="grid-kpis">
+      <div class="card kpi"><div class="label">Volume DB</div><div class="value" id="kpiTotal">0</div><div class="mini">Rounds brutos coletados</div></div>
+      <div class="card kpi"><div class="label">Conexão WS</div><div class="value" id="kpiWs">OFF</div><div class="mini" id="kpiWsMini">Sem eventos</div></div>
+      <div class="card kpi"><div class="label">Threshold Dinâmico</div><div class="value" id="kpiThreshold">0.70</div><div class="mini">Usado na decisão atual</div></div>
+      <div class="card kpi"><div class="label">Kelly</div><div class="value" id="kpiKelly">0.00%</div><div class="mini">Gestão de risco sugerida</div></div>
+      <div class="card kpi"><div class="label">White Hazard</div><div class="value" id="kpiWhiteHazard">0.00%</div><div class="mini">Risco estatístico de branco</div></div>
+      <div class="card kpi"><div class="label">Regime</div><div class="value" id="kpiRegime">—</div><div class="mini" id="kpiRegimeStrength">Força: 0</div></div>
+    </div>
+
+    <div class="content">
+      <div class="stack">
+        <div class="card">
+          <div class="section-title"><h2>Tape Reading</h2><span class="pill" id="statusBadge">Conectando...</span></div>
+          <div class="tape" id="tape"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-title"><h2>Decisão Dinâmica</h2><span class="pill" id="signalModePill">LEVIATHAN</span></div>
+          <div class="signal-box">
+            <div class="signal-option"><div class="name">Vermelho</div><div class="pct" id="probRed">0%</div></div>
+            <div class="signal-option"><div class="name">Preto</div><div class="pct" id="probBlack">0%</div></div>
+            <div class="signal-option"><div class="name">Branco</div><div class="pct" id="probWhite">0%</div></div>
+          </div>
+          <div class="main-signal">
+            <div class="signal-action" id="signalAction">⏸ Aguardando análise...</div>
+            <div class="reason" id="signalReason">O sistema ainda não produziu um snapshot válido.</div>
+          </div>
+        </div>
+
+        <div class="split2">
+          <div class="card">
+            <div class="section-title"><h2>Meta do Leviathan</h2><span class="pill">Engine</span></div>
+            <div class="kv" id="leviathanMeta"></div>
+          </div>
+          <div class="card">
+            <div class="section-title"><h2>Feature Pack</h2><span class="pill">Snapshot</span></div>
+            <div class="kv" id="featurePack"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="section-title"><h2>Histórico de Edge</h2><span class="pill">Últimos snapshots</span></div>
+          <canvas id="edgeChart" height="95"></canvas>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="card">
+          <div class="section-title"><h2>Ranking Dinâmico</h2><span class="pill">Auto-mineração</span></div>
+          <div id="ranking"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-title"><h2>Votos dos Experts</h2><span class="pill">Consensus</span></div>
+          <div id="votes"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-title"><h2>Placar W/L</h2><span class="pill">Motor</span></div>
+          <div class="kv" id="scoreboard"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-title"><h2>Audit Trail</h2><span class="pill">Histórico</span></div>
+          <div style="overflow:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Ação</th>
+                  <th>Cor</th>
+                  <th>Conf.</th>
+                  <th>Threshold</th>
+                  <th>Razão</th>
+                </tr>
+              </thead>
+              <tbody id="auditBody"></tbody>
+            </table>
+          </div>
+          <div class="footer-note">O audit trail é alimentado via snapshots do analisador.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = 'http://localhost:8765';
+    const $ = (id) => document.getElementById(id);
+
+    const edgeCtx = $('edgeChart').getContext('2d');
+    const edgeChart = new Chart(edgeCtx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Confiança', data: [], borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,.18)', tension: .35, fill: true },
+          { label: 'Threshold', data: [], borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.05)', tension: .35, fill: false },
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: '#cbd5e1' } } },
+        scales: {
+          x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.05)' } },
+          y: { ticks: { color: '#94a3b8', callback: (v)=> (v*100).toFixed(0)+'%' }, grid: { color: 'rgba(255,255,255,.05)' }, min:0, max:1 }
+        }
+      }
+    });
+
+    async function api(path, options={}) {
+      const res = await fetch(API + path, options);
+      return res.json();
+    }
+
+    function pct(v) {
+      return ((Number(v)||0) * 100).toFixed(1) + '%';
+    }
+
+    function colorLabel(c) {
+      if (c === 1 || c === 'red') return '🔴 Vermelho';
+      if (c === 2 || c === 'black') return '⚫ Preto';
+      if (c === 0 || c === 'white') return '⚪ Branco';
+      return '—';
+    }
+
+    function buildTape(recent=[]) {
+      const box = $('tape');
+      box.innerHTML = '';
+      recent.slice(0, 20).forEach(item => {
+        const el = document.createElement('div');
+        const cls = item.color === 1 ? 'c-red' : item.color === 2 ? 'c-black' : 'c-white';
+        el.className = 'ball ' + cls;
+        el.textContent = item.roll;
+        box.appendChild(el);
+      });
+    }
+
+    function renderKV(containerId, obj, formatter=null) {
+      const root = $(containerId);
+      root.innerHTML = '';
+      const entries = Object.entries(obj || {});
+      if (!entries.length) {
+        root.innerHTML = '<div class="row"><span>Status</span><span>Sem dados</span></div>';
+        return;
+      }
+      entries.forEach(([k,v]) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `<span>${k}</span><span class="mono">${formatter ? formatter(k,v) : v}</span>`;
+        root.appendChild(row);
+      });
+    }
+
+    function renderRanking(items=[]) {
+      const root = $('ranking');
+      root.innerHTML = '';
+      if (!items.length) {
+        root.innerHTML = '<div class="rank-item"><div><div>Nenhum padrão ativo</div><div class="seq">Aguardando mineração</div></div><div class="score">—</div></div>';
+        return;
+      }
+      items.slice(0,8).forEach(item => {
+        const seq = (item.seq || []).map(x => x === 1 ? 'V' : x === 2 ? 'P' : 'B').join('-');
+        const wrap = document.createElement('div');
+        wrap.className = 'rank-item';
+        wrap.innerHTML = `
+          <div>
+            <div>${item.nome || 'Padrão'}</div>
+            <div class="seq">${seq} → ${colorLabel(item.alvo)} | ${item.matches} matches</div>
+            <div class="bar-wrap"><div class="bar" style="width:${Math.min(item.acc||0,100)}%"></div></div>
+          </div>
+          <div class="score">${(item.acc||0).toFixed(1)}%</div>
+        `;
+        root.appendChild(wrap);
+      });
+    }
+
+    function renderVotes(votes=[]) {
+      const root = $('votes');
+      root.innerHTML = '';
+      if (!votes.length) {
+        root.innerHTML = '<div class="vote-item"><div><div>Sem votos</div><div class="seq">O snapshot atual não trouxe experts.</div></div><div class="score">—</div></div>';
+        return;
+      }
+      votes.forEach(v => {
+        const score = Number(v.score ?? v.conf ?? 0);
+        const el = document.createElement('div');
+        el.className = 'vote-item';
+        el.innerHTML = `
+          <div>
+            <div>${v.name || v.expert || 'Expert'}</div>
+            <div class="seq">Voto: ${colorLabel(v.vote ?? v.color)} | Peso: ${Number(v.weight ?? 1).toFixed(2)}</div>
+            <div class="bar-wrap"><div class="bar" style="width:${Math.min(score*100,100)}%"></div></div>
+          </div>
+          <div class="score">${(score*100).toFixed(1)}%</div>
+        `;
+        root.appendChild(el);
+      });
+    }
+
+    function renderScoreboard(sb={}) {
+      const engine = sb.leviathan || sb.intelligent || sb.standard || {wins:0,losses:0,ties:0,win_rate:0};
+      renderKV('scoreboard', {
+        wins: engine.wins ?? 0,
+        losses: engine.losses ?? 0,
+        ties: engine.ties ?? 0,
+        win_rate: (engine.win_rate ?? 0) + '%'
+      });
+    }
+
+    function renderAudit(history=[]) {
+      const body = $('auditBody');
+      body.innerHTML = '';
+      if (!history.length) {
+        body.innerHTML = '<tr><td colspan="6">Sem snapshots ainda.</td></tr>';
+        return;
+      }
+      history.slice(0,20).forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${(item.ts || '').replace('T',' ').slice(0,19)}</td>
+          <td>${item.action || 'wait'}</td>
+          <td>${colorLabel(item.signal_color)}</td>
+          <td>${((item.confidence||0)*100).toFixed(1)}%</td>
+          <td>${((item.threshold||0)*100).toFixed(1)}%</td>
+          <td>${item.reason || ''}</td>
+        `;
+        body.appendChild(tr);
+      });
+
+      edgeChart.data.labels = history.slice(0,20).reverse().map((_,i)=> String(i+1));
+      edgeChart.data.datasets[0].data = history.slice(0,20).reverse().map(h => Number(h.confidence || 0));
+      edgeChart.data.datasets[1].data = history.slice(0,20).reverse().map(h => Number(h.threshold || 0));
+      edgeChart.update();
+    }
+
+    async function applyConfig() {
+      const mode = $('modeSelect').value;
+      const gales = Number($('galesSelect').value);
+      await api('/api/mode', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ mode }) });
+      await api('/api/gales', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ gales }) });
+      await refreshAll();
+    }
+
+    async function resetStats() {
+      await api('/api/reset_stats', { method:'POST' });
+      await refreshAll();
+    }
+
+    async function refreshAll() {
+      try {
+        const [stats, analysis, ranking, history, meta] = await Promise.all([
+          api('/stats'),
+          api('/analysis'),
+          api('/strategy_ranking'),
+          api('/history'),
+          api('/leviathan_meta').catch(()=>({}))
+        ]);
+
+        $('kpiTotal').textContent = stats.total || 0;
+        $('kpiWs').textContent = stats.ws_connected ? 'ON' : 'OFF';
+        $('kpiWsMini').innerHTML = `<span class="status-dot ${stats.ws_connected ? 'online' : 'offline'}"></span>${stats.ws_events || 0} eventos WS`;
+        $('statusBadge').textContent = stats.ws_connected ? 'WebSocket Online' : 'Modo fallback';
+        $('modeSelect').value = stats.mode || 'intelligent';
+        $('galesSelect').value = String(stats.max_gales ?? 0);
+
+        buildTape(stats.recent || []);
+        renderRanking(ranking.ranking || []);
+        renderScoreboard(stats.scoreboard || {});
+        renderKV('leviathanMeta', meta || stats.leviathan || {});
+
+        if (analysis && analysis.status === 'ok') {
+          $('probRed').textContent = pct(analysis.probabilities?.red);
+          $('probBlack').textContent = pct(analysis.probabilities?.black);
+          $('probWhite').textContent = pct(analysis.probabilities?.white);
+          $('signalAction').textContent = `${analysis.signal?.action === 'enter' ? '🎯 ENTRADA' : analysis.signal?.action === 'block' ? '🛑 BLOQUEIO' : '⏸ AGUARDAR'} — ${colorLabel(analysis.signal?.color)}`;
+          $('signalReason').textContent = analysis.signal?.reason || 'Sem justificativa.';
+          $('kpiThreshold').textContent = Number(analysis.signal?.threshold_used ?? .70).toFixed(2);
+          
+          // FIX v1.2: Exibição direta do Kelly sem dupla multiplicação percentual
+          $('kpiKelly').textContent = (Number(analysis.signal?.kelly || 0)).toFixed(2) + '%';
+          
+          $('kpiWhiteHazard').textContent = ((Number(analysis.white_hazard || 0))*100).toFixed(2) + '%';
+          $('kpiRegime').textContent = analysis.regime?.label || analysis.regime?.name || '—';
+          $('kpiRegimeStrength').textContent = 'Força: ' + Number(analysis.regime?.strength || 0).toFixed(3);
+          renderVotes(analysis.votes || []);
+          renderKV('featurePack', analysis.features || {}, (k,v)=> typeof v === 'number' ? Number(v).toFixed(4) : String(v));
+        } else {
+          $('signalAction').textContent = '⏸ Aguardando análise...';
+          $('signalReason').textContent = analysis?.message || 'Snapshot ainda indisponível.';
+        }
+
+        renderAudit(history.history || []);
+      } catch (err) {
+        $('signalReason').textContent = 'Falha ao consultar API: ' + err.message;
+      }
+    }
+
+    function connectSSE() {
+      try {
+        const es = new EventSource(API + '/events');
+        es.addEventListener('new_result', () => refreshAll());
+        es.onerror = () => setTimeout(connectSSE, 5000);
+      } catch {
+        setTimeout(connectSSE, 5000);
+      }
+    }
+
+    $('applyConfigBtn').addEventListener('click', applyConfig);
+    $('resetStatsBtn').addEventListener('click', resetStats);
+
+    refreshAll();
+    setInterval(refreshAll, 5000);
+    connectSSE();
+  </script>
+</body>
+</html>
