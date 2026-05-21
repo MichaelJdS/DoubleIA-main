@@ -1402,6 +1402,25 @@ def run_engine(seq):
 
     with _threshold_lock:
         banca_level = _threshold_state["banca_level"]
+    # ── Campos Pantheon para o dashboard ──────────────────────────────────
+    # Recalcula pesos neurais combinando pesos locais e oracle (mesma lógica do ensemble)
+    neural_weights_base = get_neural_weights()
+    oracle_w = oracle_get_weights(colors, regime)
+    neural_weights = {
+        k: round(neural_weights_base.get(k, 1.0) * oracle_w.get(k, 1.0), 3)
+        for k in set(list(neural_weights_base.keys()) + list(oracle_w.keys()))
+    }
+
+    # D-S simples: calcula a massa a partir dos votos ativos ponderados
+    votes_all = result.get("votes", [])
+    votes_ativos = [v for v in votes_all if v.get("vote") is not None]
+    total_w = sum(neural_weights.get(v.get("source"), 1.0) * float(v.get("confidence", 0) or 0) for v in votes_ativos) or 1.0
+    m_red = sum(neural_weights.get(v.get("source"), 1.0) * float(v.get("confidence", 0) or 0) for v in votes_ativos if v.get("vote") == 1) / total_w
+    m_black = sum(neural_weights.get(v.get("source"), 1.0) * float(v.get("confidence", 0) or 0) for v in votes_ativos if v.get("vote") == 2) / total_w
+    m_unc = round(max(0.0, 1.0 - m_red - m_black), 4)
+    m_red = round(m_red, 4)
+    m_black = round(m_black, 4)
+    ds_conflict = round(1.0 - max(m_red, m_black, m_unc), 4)
 
     return {
         "n": len(seq),
@@ -1413,16 +1432,31 @@ def run_engine(seq):
         "probs": probs,
         "regime": {"regime": regime["name"], "label": regime["label"], "strength": regime["strength"]},
         "tests":  {"white": wh},
+        "votes": result.get("votes", []),
+        "oracle_weights": oracle_w,
+        "oracle_q_states": len(_oracle_state.get("q_table", {})),
+        "ds_conflict": ds_conflict,
+        "ds_mass_red": m_red,
+        "ds_mass_black": m_black,
+        "ds_mass_unc": m_unc,
         "features": {
             "llm_status": groq_status, "llm_model": groq_model,
             "kelly_pct": result["kelly"], "vote_count": result.get("vote_count", 0),
             "ensemble_modules": NUM_EXPERTS,
             "threshold_used": _threshold_state["value"],
             "regime_name": regime["name"],
+            "micro_regime": regime["name"],
             "miner_count": len(GLOBAL_MINED_STRATS),
             "catalog_count": len(GLOBAL_CATALOG_STRATS),
             "votes_json": json.dumps(votes_summary, ensure_ascii=False),
             "banca_level": banca_level,
+            # ── Pantheon fields ───────────────────────────────────────────
+            "ds_conflict": ds_conflict,
+            "ds_mass_red": m_red,
+            "ds_mass_black": m_black,
+            "ds_mass_unc": m_unc,
+            "oracle_weights": oracle_w,
+            "oracle_q_states": len(_oracle_state.get("q_table", {})),
         },
     }
 
