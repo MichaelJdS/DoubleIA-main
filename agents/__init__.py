@@ -1,3 +1,4 @@
+"""Pantheon Agents — SYBIL, CHAOS, HERMES, ORACLE, ATLAS, TITAN"""
 # Pantheon Agents Module
 from .agent_sybil   import expert_sybil
 from .agent_chaos   import expert_chaos

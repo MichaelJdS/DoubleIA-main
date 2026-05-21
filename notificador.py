@@ -1,6 +1,6 @@
 """
-BLAZE DOUBLE AI — NOTIFICADOR TELEGRAM v4.0 (Leviathan)
-Exibe: regime, votos do ensemble, threshold adaptativo, auto-mute.
+BLAZE DOUBLE AI — NOTIFICADOR TELEGRAM v5.0 (Pantheon)
+Exibe: micro-regime, 14 experts, D-S conflict, banca_level, Oracle.
 """
 import json
 import urllib.request
@@ -14,17 +14,16 @@ log = logging.getLogger("notificador")
 TELEGRAM_TOKEN  = os.getenv("TELEGRAM_TOKEN", "").strip()
 TELEGRAM_CHATID = os.getenv("TELEGRAM_CHATID", "").strip()
 
-COR_NOME  = {0: "BRANCO",   1: "VERMELHO",  2: "PRETO",  None: "—"}
-COR_EMOJI = {0: "⚪",       1: "🔴",        2: "⚫",     None: "❓"}
+COR_NOME  = {0: "BRANCO",  1: "VERMELHO", 2: "PRETO",  None: "—"}
+COR_EMOJI = {0: "⚪",      1: "🔴",       2: "⚫",     None: "❓"}
 
 ACTION_PT = {
-    "enter":             "🎯 ENTRAR",
-    "enter_conditional": "⚡ ENTRAR CONDICIONAL",
-    "wait":              "⏳ AGUARDAR",
-    "block":             "🚫 BLOQUEADO",
-    "monitor_white":     "🔍 MONITORAR BRANCA",
-    "gale_1":            "🔥 GALE 1",
-    "gale_2":            "🔥🔥 GALE 2",
+    "enter":         "🎯 ENTRAR",
+    "wait":          "⏳ AGUARDAR",
+    "block":         "🚫 BLOQUEADO",
+    "freeze":        "❄️ FREEZE",
+    "gale_1":        "🔥 GALE 1",
+    "gale_2":        "🔥🔥 GALE 2",
 }
 
 def configured() -> bool:
@@ -33,7 +32,7 @@ def configured() -> bool:
 def escape_html(texto: str) -> str:
     if texto is None:
         return ""
-    return str(texto).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return str(texto).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
 
 def enviar(texto: str) -> bool:
     if not configured():
@@ -58,10 +57,11 @@ def enviar(texto: str) -> bool:
         log.warning("Telegram erro: %s", e)
         return False
 
-def notificar_sinal(signal: dict, regime: dict, patterns: list, probs: dict) -> bool:
+def notificar_sinal(signal: dict, regime: dict, patterns: list, probs: dict,
+                    features: dict = None) -> bool:
     """
-    Monta e envia notificação rica do Leviathan Engine.
-    Exibe: regime, ensemble votes, threshold, kelly.
+    Notificação completa do Pantheon Engine v3.0.
+    Exibe: micro-regime, D-S conflict, vote_count, banca_level, Kelly.
     """
     action = signal.get("action", "wait")
     color  = signal.get("color")
@@ -69,92 +69,115 @@ def notificar_sinal(signal: dict, regime: dict, patterns: list, probs: dict) -> 
     reason = escape_html(signal.get("reason", ""))
     kelly  = float(signal.get("kelly", 0) or 0)
 
-    if action not in ("enter", "enter_conditional", "monitor_white", "gale_1", "gale_2"):
+    if action not in ("enter", "gale_1", "gale_2", "monitor_white"):
         return False
 
-    emoji     = COR_EMOJI.get(color, "❓")
-    nome      = COR_NOME.get(color, "—")
-    act_pt    = ACTION_PT.get(action, action)
+    feat = features or {}
+
+    emoji  = COR_EMOJI.get(color, "❓")
+    nome   = COR_NOME.get(color, "—")
+    act_pt = ACTION_PT.get(action, action)
 
     p_red   = round(float(probs.get("red",   0) or 0) * 100, 1)
     p_black = round(float(probs.get("black", 0) or 0) * 100, 1)
     p_white = round(float(probs.get("white", 0) or 0) * 100, 1)
 
-    # Regime
-    regime_name  = escape_html(regime.get("label") or regime.get("name") or "Normal")
-    regime_str   = float(regime.get("strength", 0) or 0)
+    # Regime + micro
+    regime_name = escape_html(regime.get("label") or regime.get("name") or "Normal")
+    micro       = escape_html(feat.get("micro_regime") or
+                              regime.get("micro_regime") or "–")
 
-    # Votos do ensemble (novo no Leviathan)
-    votes_json = signal.get("votes_json", [])
-    votes_str = ""
-    if votes_json:
-        try:
-            votes = (
-                json.loads(votes_json)
-                if isinstance(votes_json, str)
-                else votes_json
+    # D-S
+    ds_k        = float(feat.get("ds_conflict", 0) or 0)
+    ds_str      = f"{ds_k:.3f}" + (" ⚠️" if ds_k > 0.35 else " ✅")
+
+    # Experts
+    vote_count  = int(signal.get("vote_count", feat.get("vote_count", 0)) or 0)
+    votes_json  = signal.get("votes_json") or feat.get("votes_json", "[]")
+    votes_str   = ""
+    try:
+        votes  = json.loads(votes_json) if isinstance(votes_json, str) else votes_json
+        active = [v for v in votes if isinstance(v, dict) and v.get("vote") is not None]
+        if active:
+            votes_str = " ".join(
+                f"{'🔴' if v['vote']==1 else '⚫'}"
+                for v in active[:14]
             )
-            active = [v for v in votes if isinstance(v, dict) and v.get("vote") is not None]
-            if active:
-                votes_str = " | ".join(
-                    f"{'🔴' if v['vote']==1 else '⚫'} {escape_html(v['label'][:25])}"
-                    for v in active[:3]
-                )
-        except Exception:
-            pass
+    except Exception:
+        pass
 
-    # Threshold
-    threshold_used = float(signal.get("threshold_used", 0) or 0)
-    threshold_str  = f"{threshold_used*100:.1f}%" if threshold_used else ""
+    # Threshold + banca
+    threshold  = float(signal.get("threshold_used", 0) or 0)
+    banca      = feat.get("banca_level", "NORMAL")
+    banca_icon = {"NORMAL": "🟢", "ALERT": "🟡", "LOCKDOWN": "🔴"}.get(banca, "⚪")
 
     timestamp = datetime.now().strftime("%d/%m %H:%M:%S")
 
     msg = (
-        f"<b>⚡ LEVIATHAN ENGINE — SINAL</b>\n"
+        f"<b>⚡ PANTHEON v3.0 — SINAL</b>\n"
         f"<code>{timestamp}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>{act_pt} {emoji} {nome}</b>\n"
-        f"📊 Confiança: <b>{conf*100:.1f}%</b>"
-        + (f" | Threshold: <b>{threshold_str}</b>" if threshold_str else "") + "\n"
-        f"📈 Regime: <b>{regime_name}</b> ({regime_str*100:.0f}%)\n"
-        + (f"🗳️ Ensemble:\n<code>{votes_str}</code>\n" if votes_str else "")
-        + (f"💰 Kelly Recomendado: <b>{kelly:.2f}%</b>\n" if kelly > 0 else "")
-        + f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🎲 Probs — 🔴{p_red}% ⚫{p_black}% ⚪{p_white}%\n"
-        f"📝 <i>{reason[:120]}</i>\n"
+        f"📊 Edge: <b>{conf*100:.1f}%</b>"
+        + (f" | Thr: <b>{threshold*100:.1f}%</b>" if threshold else "") + "\n"
+        f"🌀 Micro-regime: <code>{micro}</code>\n"
+        f"⚛️ D-S Conflito: <b>{ds_str}</b>\n"
+        f"🗳️ Experts ({vote_count}/14): <code>{votes_str}</code>\n"
+        + (f"💰 Kelly: <b>{kelly:.2f}%</b>\n" if kelly > 0 else "")
+        + f"{banca_icon} Banca: <b>{banca}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"<i>Leviathan v1.0 | Auto-Adaptativo</i>"
+        f"🎲 🔴{p_red}% ⚫{p_black}% ⚪{p_white}%\n"
+        f"📝 <i>{reason[:140]}</i>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Pantheon v3.0 | 14 Experts | D-S Fusion | Oracle RL</i>"
     )
     return enviar(msg)
 
-def notificar_auto_mute(losses: int, rounds: int):
+
+def notificar_auto_mute(losses: int, rounds: int, banca_level: str = "ALERT"):
+    banca_icon = {"NORMAL": "🟢", "ALERT": "🟡", "LOCKDOWN": "🔴"}.get(banca_level, "⚪")
     return enviar(
-        f"<b>🔇 AUTO-MUTE ATIVADO</b>\n"
-        f"{losses} derrotas consecutivas detectadas.\n"
-        f"Sistema em silêncio por <b>{rounds} rounds</b>.\n"
-        f"<i>Leviathan recalibrando threshold...</i>"
+        f"<b>🔇 BANCA PROTECTION ATIVADO</b>\n"
+        f"{banca_icon} Nível: <b>{banca_level}</b>\n"
+        f"Derrotas consecutivas: <b>{losses}</b>\n"
+        f"Silêncio por <b>{rounds} rounds</b>.\n"
+        f"<i>Pantheon recalibrando threshold e Oracle...</i>"
     )
 
 def notificar_mute_encerrado(wr_recente: str):
     return enviar(
-        f"<b>🔊 AUTO-MUTE ENCERRADO</b>\n"
+        f"<b>🔊 PROTEÇÃO ENCERRADA</b>\n"
         f"Performance recuperada: <b>{wr_recente}</b>\n"
-        f"<i>Leviathan voltando a operar normalmente.</i>"
+        f"<i>Pantheon voltando a operar normalmente.</i>"
+    )
+
+def notificar_regime_shift(old_regime: str, new_regime: str, freeze_rounds: int):
+    return enviar(
+        f"<b>❄️ REGIME SHIFT DETECTADO</b>\n"
+        f"<code>{escape_html(old_regime)}</code> → <code>{escape_html(new_regime)}</code>\n"
+        f"HERMES/BOCPD detectou mudança estrutural.\n"
+        f"Freeze de <b>{freeze_rounds} rounds</b> ativado.\n"
+        f"<i>Aguarde novo ciclo estável...</i>"
     )
 
 def notificar_inicio():
     return enviar(
-        "<b>⚡ Leviathan Engine v1.0 ATIVO</b>\n"
-        "Ensemble Voting | Regime Detection | Adaptive Threshold\n"
+        "<b>⚡ PANTHEON ENGINE v3.0 ATIVO</b>\n"
+        "14 Experts | Dempster-Shafer Fusion | Oracle Q-Learning\n"
+        "SYBIL • CHAOS • HERMES • ATLAS • TITAN\n"
+        "18 Micro-Regimes | Correlation Guard | Regime-Shift Freeze\n"
         "Aguardando sinais operacionais..."
     )
 
 def notificar_parada(total: int):
-    return enviar(f"<b>Sistema encerrado</b>\nTotal coletado: <b>{int(total)}</b> rodadas.")
+    return enviar(
+        f"<b>⚡ Pantheon v3.0 encerrado</b>\n"
+        f"Total coletado: <b>{int(total)}</b> rodadas."
+    )
 
 def notificar_status(texto: str):
-    return enviar(f"<b>Status do Sistema</b>\n{escape_html(texto)}")
+    return enviar(f"<b>📡 Status Pantheon</b>\n{escape_html(texto)}")
 
 if __name__ == "__main__":
-    print("TELEGRAM_TOKEN:", "OK" if TELEGRAM_TOKEN else "NÃO CONFIGURADO")
+    print("TELEGRAM_TOKEN:",  "OK" if TELEGRAM_TOKEN  else "NÃO CONFIGURADO")
     print("TELEGRAM_CHATID:", "OK" if TELEGRAM_CHATID else "NÃO CONFIGURADO")

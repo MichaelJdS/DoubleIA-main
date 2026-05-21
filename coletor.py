@@ -301,6 +301,17 @@ def get_analysis():
             try: feat = json.loads(row[14]) if row[14] else {}
             except: feat = {}
 
+            # ── Extrai campos Pantheon do features_json ────────────────────
+            micro_regime  = feat.get("micro_regime", feat.get("regime_name", ""))
+            ds_conflict   = float(feat.get("ds_conflict", 0))
+            ds_mass_red   = float(feat.get("ds_mass_red", 0))
+            ds_mass_black = float(feat.get("ds_mass_black", 0))
+            ds_mass_unc   = float(feat.get("ds_mass_unc", 0))
+            oracle_w      = feat.get("oracle_weights", {})
+            oracle_qs     = feat.get("oracle_q_states", 0)
+            banca_level   = feat.get("banca_level", "NORMAL")
+            vote_count    = feat.get("vote_count", 0)
+
             return {
                 "status":       "ok",
                 "ts":           row[0],
@@ -317,20 +328,34 @@ def get_analysis():
                     "action":         row[8] or "wait",
                     "reason":         row[9] or "",
                     "votes_json":     row[16] or "[]",
-                    "threshold_used": round(float(row[17] or 0.70), 4),
+                    "threshold_used": round(float(row[17] or 0.74), 4),
                     "kelly":          float(feat.get("kelly_pct", 0) or 0),
+                    "vote_count":     vote_count,
                 },
                 "regime": {
-                    "name":     row[10] or "balanced",
-                    "label":    row[10] or "balanced",
-                    "strength": round(row[11] or 0, 4),
+                    "name":         row[10] or "balanced",
+                    "label":        row[10] or "balanced",
+                    "strength":     round(row[11] or 0, 4),
+                    "micro_regime": micro_regime,
                 },
                 "white_hazard":    round(row[12] or 0, 4),
                 "dist_last_white": row[13] or 0,
                 "features_json":   row[14] or "{}",
-                "features":        feat,
-                "patterns":        patterns,
-                "votes":           votes,
+                "features": {
+                    **feat,
+                    # ── Campos Pantheon explícitos para o dashboard ──────
+                    "micro_regime":   micro_regime,
+                    "ds_conflict":    ds_conflict,
+                    "ds_mass_red":    ds_mass_red,
+                    "ds_mass_black":  ds_mass_black,
+                    "ds_mass_unc":    ds_mass_unc,
+                    "oracle_weights": oracle_w,
+                    "oracle_q_states":oracle_qs,
+                    "banca_level":    banca_level,
+                    "votes_json":     row[16] or "[]",
+                },
+                "patterns": patterns,
+                "votes":    votes,
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -451,7 +476,7 @@ class Handler(BaseHTTPRequestHandler):
             "ws_connected": ws_status["connected"],
             "ws_events": ws_status["total_ws"],
             "ts": datetime.now(timezone.utc).isoformat(),
-            "version": "4.0-leviathan",
+            "version": "5.0-pantheon",
         })
         elif path == "/events": self._sse_stream()
         else: self._json({"endpoints": [

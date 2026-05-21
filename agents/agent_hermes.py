@@ -11,6 +11,10 @@ import numpy as np
 
 log = logging.getLogger("hermes")
 
+
+def bayes_prob(wins, n, alpha=1.5):
+    return (wins + alpha) / (n + 2 * alpha)
+
 HERMES_HAZARD_RATE  = 1 / 40   # taxa de mudança esperada (1 a cada ~40 rounds)
 HERMES_WINDOW       = 150      # janela de observação
 HERMES_MIN_CONF     = 0.64     # confiança mínima para votar após mudança

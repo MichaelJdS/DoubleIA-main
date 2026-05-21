@@ -34,7 +34,26 @@ def _ctw_update(tree, context, outcome):
     context: tupla de cores anteriores (contexto)
     outcome: cor que saiu (1=vermelho, 2=preto)
     """
-    node_key = context
+    # Garantir que a chave do nó seja uma tupla (hashable).
+    # Aceita listas/tuplas e também tentará converter elementos não-hashable
+    # (ex.: dicts internos) para representações hashable.
+    try:
+        if isinstance(context, tuple):
+            node_key = context
+        else:
+            node_key = tuple(context)
+    except TypeError:
+        # Caso algum elemento do contexto não seja diretamente hashable
+        # (por exemplo um dict), convertemos cada elemento para uma
+        # representação estável e hashable: tupla de items ordenados.
+        safe = []
+        for e in context:
+            if isinstance(e, dict):
+                safe.append(tuple(sorted(e.items())))
+            else:
+                safe.append(e)
+        node_key = tuple(safe)
+
     if node_key not in tree:
         tree[node_key] = {1: 0, 2: 0, "total": 0}
     tree[node_key][outcome] += 1
@@ -52,6 +71,9 @@ def _ctw_predict(tree, context, depth=ATLAS_CONTEXT_DEPTH):
     # Testa todos os sufixos do contexto (do mais longo ao mais curto)
     for d in range(len(context), 0, -1):
         suffix = context[-d:]
+        # Garantir que suffix é tupla (em caso de chamadas com lists etc.)
+        if not isinstance(suffix, tuple):
+            suffix = tuple(suffix)
         node = tree.get(suffix)
         if node and node["total"] >= ATLAS_MIN_SAMPLES:
             total = node["total"]

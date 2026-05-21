@@ -169,9 +169,13 @@ def get_sys_config(key, default=None):
         return default
 
 def set_sys_config(key, value):
-    conn = _conn()
-    conn.execute("INSERT OR REPLACE INTO system_config (key, value) VALUES (?, ?)", (key, str(value)))
-    conn.commit(); conn.close()
+    try:
+        conn = _conn()
+        conn.execute("INSERT OR REPLACE INTO system_config (key, value) VALUES (?, ?)", (key, str(value)))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 def get_max_gales():
     try: return int(get_sys_config("max_gales", "0"))
@@ -1430,6 +1434,33 @@ def save_snapshot(seq, engine_result):
     reg = engine_result["regime"]; wh = engine_result["tests"]["white"]
     feat= engine_result["features"]
 
+    # Enriquecer features com campos Pantheon antes de persistir
+    try:
+        feat["micro_regime"]    = engine_result.get("micro_regime", feat.get("regime_name", feat.get("micro_regime", "")))
+    except Exception:
+        feat["micro_regime"] = feat.get("regime_name", "")
+    feat["ds_conflict"]     = round(engine_result.get("ds_conflict", feat.get("ds_conflict", 0)), 4)
+    feat["ds_mass_red"]     = round(engine_result.get("ds_mass_red", feat.get("ds_mass_red", 0)), 4)
+    feat["ds_mass_black"]   = round(engine_result.get("ds_mass_black", feat.get("ds_mass_black", 0)), 4)
+    feat["ds_mass_unc"]     = round(engine_result.get("ds_mass_unc", feat.get("ds_mass_unc", 0)), 4)
+    feat["oracle_weights"]  = engine_result.get("oracle_weights", feat.get("oracle_weights", {}))
+    feat["oracle_q_states"] = engine_result.get("oracle_q_states", feat.get("oracle_q_states", 0))
+    feat["banca_level"]     = engine_result.get("banca_level", feat.get("banca_level", feat.get("banca_level", "NORMAL")))
+    feat["vote_count"]      = engine_result.get("vote_count", feat.get("vote_count", feat.get("vote_count", 0)))
+    feat["votes_json"]      = json.dumps(
+        [
+            {
+                "source": v.get("source", ""),
+                "module": v.get("source", ""),
+                "vote": v.get("vote"),
+                "confidence": round(float(v.get("confidence", 0) or 0), 4),
+                "label": v.get("label", ""),
+            }
+            for v in engine_result.get("votes", [])
+        ],
+        ensure_ascii=False
+    )
+
     patterns = []
     if s["action"] in ("enter", "block"):
         patterns = [{"name": s["reason"][:80], "strength": s["confidence"]}]
@@ -1520,13 +1551,17 @@ def validate_previous(current_color, current_round_id):
                         module_votes[src] = {"vote": v.get("vote"), "confidence": v.get("conf", 0.5)}
 
                 # CORREÇÃO: passa actual_color E won (não inverte mais)
-                update_neural_weights(
-                    module_votes,
-                    current_color if not won else pred_color,
-                    won,
-                    colors,
-                    regime,
-                )
+                seq = load_sequence(5000)
+                if seq:
+                    colors = [r["color"] for r in seq]
+                    regime = detect_regime(colors)
+                    update_neural_weights(
+                        module_votes,
+                        current_color if not won else pred_color,
+                        won,
+                        colors,
+                        regime,
+                    )
             except: pass
 
             with _threshold_lock:
@@ -1671,8 +1706,8 @@ def run_analysis_cycle():
     if TELEGRAM_OK and s["action"] in ("enter", "gale_1", "gale_2"):
         uniq = f"{s['action']}|{s['color']}|{seq[-1]['round_id']}"
         if uniq != _last_notified:
-            notificar_sinal(s, er["regime"], [], er["probs"])
-            _last_notified = uniq
+                notificar_sinal(s, er["regime"], [], er["probs"], feat)
+        _last_notified = uniq
     elif s["action"] in ("wait", "block"):
         _last_notified = None
 

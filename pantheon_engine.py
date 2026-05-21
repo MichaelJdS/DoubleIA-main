@@ -44,9 +44,14 @@ from analisador import (
 from agents.agent_sybil  import expert_sybil
 from agents.agent_chaos  import expert_chaos
 from agents.agent_hermes import expert_hermes, _hermes_state
-from agents.agent_oracle import (expert_oracle, oracle_get_weights,
-                                  oracle_learn, oracle_save_state,
-                                  oracle_load_state, ORACLE_EXPERTS)
+from agents.agent_oracle import (
+    oracle_get_weights,
+    oracle_learn,
+    oracle_save_state,
+    oracle_load_state,
+    ORACLE_EXPERTS,
+    _oracle_state,
+)
 from agents.agent_atlas  import expert_atlas, atlas_rebuild_tree
 from agents.agent_titan  import expert_titan, titan_rebuild
 
@@ -193,7 +198,7 @@ def dempster_shafer_fusion(expert_results, neural_weights):
         n_voters += 1
 
     if n_voters == 0:
-        return None, 0.0, 0.0
+        return None, 0.0, 0.0, 0.0, 0.0, 0.0
 
     # Decisão: cor com maior massa
     if m_red > m_black:
@@ -203,13 +208,13 @@ def dempster_shafer_fusion(expert_results, neural_weights):
         winner   = 2
         ds_conf  = m_black
     else:
-        return None, 0.0, conflict_total
+        return None, 0.0, conflict_total, 0.0, 0.0, 0.0
 
     # Penalidade por conflito alto
     conflict_penalty = min(conflict_total * 0.15, 0.20)
     ds_conf = max(0.0, ds_conf - conflict_penalty)
 
-    return winner, round(ds_conf, 4), round(conflict_total, 4)
+    return winner, round(ds_conf, 4), round(conflict_total, 4), round(m_red, 4), round(m_black, 4), round(m_unc, 4)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -330,7 +335,16 @@ def run_pantheon(colors, regime, last_round=None):
         )
 
     # ── FASE 4: Dempster-Shafer Fusion ────────────────────────────────────────
-    ds_winner, ds_conf, ds_conflict = dempster_shafer_fusion(expert_results, hybrid_weights)
+    # inicializa valores padrão para persistência
+    ds_winner = None
+    ds_conf = 0.0
+    ds_conflict = 0.0
+    ds_mass_red = 0.0
+    ds_mass_black = 0.0
+    ds_res = dempster_shafer_fusion(expert_results, hybrid_weights)
+    if ds_res:
+        # desempacota: winner, conf, conflict, mass_red, mass_black, mass_unc
+        ds_winner, ds_conf, ds_conflict, ds_mass_red, ds_mass_black, ds_mass_unc = ds_res
 
     if ds_winner is None:
         return {
@@ -338,6 +352,15 @@ def run_pantheon(colors, regime, last_round=None):
             "votes": expert_results,
             "reason": "⏳ D-S: sem evidência suficiente.",
             "kelly": 0.0, "vote_count": 0,
+            # Pantheon fields
+            "micro_regime": current_regime_name,
+            "ds_conflict": ds_conflict,
+            "ds_mass_red": ds_mass_red,
+            "ds_mass_black": ds_mass_black,
+            "ds_mass_unc": ds_mass_unc,
+            "oracle_weights": hybrid_weights,
+            "oracle_q_states": len(_oracle_state.get("q_table", {})),
+            "banca_level": banca_level,
         }
 
     # ── FASE 5: Correlation Guard ─────────────────────────────────────────────
@@ -372,6 +395,15 @@ def run_pantheon(colors, regime, last_round=None):
             "votes": expert_results,
             "reason": f"🔒 LOCKDOWN [{banca_level}] — {remaining} rounds restantes.",
             "kelly": 0.0, "vote_count": votes_for_winner,
+            # Pantheon fields
+            "micro_regime": current_regime_name,
+            "ds_conflict": ds_conflict,
+            "ds_mass_red": ds_mass_red,
+            "ds_mass_black": ds_mass_black,
+            "ds_mass_unc": ds_mass_unc,
+            "oracle_weights": hybrid_weights,
+            "oracle_q_states": len(_oracle_state.get("q_table", {})),
+            "banca_level": banca_level,
         }
 
     # ── FASE 9: Threshold + mínimo de experts ────────────────────────────────
@@ -387,6 +419,15 @@ def run_pantheon(colors, regime, last_round=None):
             "votes": expert_results,
             "reason": f"⏳ Aguardando: {'; '.join(parts)}. [{', '.join(top)}]",
             "kelly": 0.0, "vote_count": votes_for_winner,
+            # Pantheon fields
+            "micro_regime": current_regime_name,
+            "ds_conflict": ds_conflict,
+            "ds_mass_red": ds_mass_red,
+            "ds_mass_black": ds_mass_black,
+            "ds_mass_unc": ds_mass_unc,
+            "oracle_weights": hybrid_weights,
+            "oracle_q_states": len(_oracle_state.get("q_table", {})),
+            "banca_level": banca_level,
         }
 
     # ── FASE 10: Sinal de entrada ─────────────────────────────────────────────
@@ -410,6 +451,15 @@ def run_pantheon(colors, regime, last_round=None):
                        f"[{'; '.join(contributing[:3])}]"),
         "kelly":      round(kelly_val * 100, 2),
         "vote_count": votes_for_winner,
+        # ── Campos Pantheon para persistência ──────────────────────────
+        "micro_regime":   current_regime_name,
+        "ds_conflict":    ds_conflict,
+        "ds_mass_red":    ds_mass_red,
+        "ds_mass_black":  ds_mass_black,
+        "ds_mass_unc":    ds_mass_unc,
+        "oracle_weights": hybrid_weights,
+        "oracle_q_states": len(_oracle_state.get("q_table", {})),
+        "banca_level":    banca_level,
     }
 
 
