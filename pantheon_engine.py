@@ -506,7 +506,12 @@ def pantheon_init(colors=None):
     oracle_load_state()
 
     if colors and len(colors) >= 100:
-        nw = [c for c in colors if c != 0]
+        # Normaliza a lista de entrada: aceita tanto lista de inteiros
+        # como lista de registros (dicts) retornados por load_sequence().
+        if isinstance(colors[0], dict):
+            nw = [r.get("color", 0) for r in colors if r.get("color", 0) != 0]
+        else:
+            nw = [c for c in colors if c != 0]
         atlas_rebuild_tree(nw)
         titan_rebuild(nw)
         log.info("✅ ATLAS e TITAN inicializados com %d rounds", len(nw))
