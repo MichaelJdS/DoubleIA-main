@@ -188,8 +188,6 @@ def get_groq_models():
 
 
 # ─────────────────────────── REDE NEURAL CORRIGIDA ───────────────────────────
-# CORREÇÃO CRÍTICA: na v1.3, quando o sistema ERRAVA, o actual_winner era
-# calculado invertido — punindo quem acertou. Aqui está a versão correta.
 _neural_lock = threading.Lock()
 _LEARNING_RATE = 0.04
 _DEFAULT_WEIGHTS = {
@@ -206,12 +204,6 @@ def get_neural_weights():
     return _DEFAULT_WEIGHTS.copy()
 
 def update_neural_weights(module_votes: dict, actual_color: int, won: bool, colors=None, regime=None):
-    """
-    LÓGICA CORRETA:
-    - Se won=True: o módulo que votou em actual_color acertou → recompensa
-    - Se won=False: o módulo que votou em actual_color errou → punição
-    Antes estava invertido quando won=False.
-    """
     with _neural_lock:
         weights = get_neural_weights()
         for mod_name, vote_data in module_votes.items():
@@ -219,9 +211,7 @@ def update_neural_weights(module_votes: dict, actual_color: int, won: bool, colo
             if vote is None: continue
             conf = float(vote_data.get("confidence", 0.5))
 
-            # Acertou se votou na cor que saiu E won=True
             voted_correctly = (vote == actual_color) and won
-            # Errou se votou na cor que saiu E won=False (branco não conta)
             voted_wrongly   = (vote == actual_color) and not won
 
             if voted_correctly:
@@ -229,7 +219,7 @@ def update_neural_weights(module_votes: dict, actual_color: int, won: bool, colo
             elif voted_wrongly:
                 delta = -_LEARNING_RATE * conf
             else:
-                delta = 0.0  # votou na outra cor — neutro neste round
+                delta = 0.0
 
             weights[mod_name] = round(max(0.1, min(3.5, weights[mod_name] + delta)), 4)
 
@@ -356,7 +346,6 @@ def bayes_prob(wins, n, alpha=1.5):
     return (wins + alpha) / (n + 2 * alpha)
 
 def wilson_lower(wins, n, z=1.96):
-    """Limite inferior do intervalo de Wilson — conservador e justo."""
     if n == 0:
         return 0.0
     p = wins / n
@@ -372,18 +361,12 @@ def wilson_lower(wins, n, z=1.96):
     return max(0.0, (center - spread) / denom)
 
 def kelly_fraction(prob, frac=0.20):
-    """Kelly mais conservador — fração 20% (era 25%)."""
     if prob <= 0.52: return 0.0
     edge = 2.0 * prob - 1.0
     return max(0.0, min(edge * frac, 0.25))
 
 def calibrate_confidence(raw_conf, n_voters, max_voters):
-    """
-    Calibração de confiança: penaliza quando poucos experts concordam
-    e quando a confiança bruta é inflada por pesos altos.
-    """
     voter_ratio = n_voters / max(max_voters, 1)
-    # Shrinkage em direção a 0.5 proporcional à falta de consenso
     shrink = 0.5 + (raw_conf - 0.5) * (0.5 + 0.5 * voter_ratio)
     return round(min(shrink, 0.97), 4)
 
@@ -433,7 +416,6 @@ def alternation_ratio(colors, window=10):
     return flips / (len(nw) - 1)
 
 def distribution_deviation(colors, window_recent=50, window_global=500):
-    """Mede desvio da distribuição recente vs histórico global."""
     recent = [c for c in colors[-window_recent:] if c != 0]
     hist   = [c for c in colors[-window_global:] if c != 0]
     if len(recent) < 10 or len(hist) < 50: return {"red_dev": 0.0, "black_dev": 0.0, "bias": None}
@@ -443,21 +425,18 @@ def distribution_deviation(colors, window_recent=50, window_global=500):
     h_black = hist.count(2)   / len(hist)
     red_dev   = r_red   - h_red
     black_dev = r_black - h_black
-    # Bias: se vermelho está sub-representado recentemente → tende a voltar
     bias = None
     if abs(red_dev) > 0.07:
-        bias = 2 if red_dev > 0 else 1   # vermelho muito frequente → favorece preto e vice-versa
+        bias = 2 if red_dev > 0 else 1
     elif abs(black_dev) > 0.07:
         bias = 1 if black_dev > 0 else 2
     return {"red_dev": round(red_dev, 4), "black_dev": round(black_dev, 4), "bias": bias}
 
 def volatility_score(colors, window=30):
-    """Mede se o jogo está em compressão (padrões previsíveis) ou explosão."""
     nw = [c for c in colors[-window:] if c != 0]
     if len(nw) < 10: return {"level": "unknown", "score": 0.5}
     flips = sum(1 for i in range(1, len(nw)) if nw[i] != nw[i-1])
     ratio = flips / (len(nw) - 1)
-    # Alta alternância = explosão (imprevisível), baixa = compressão (streak)
     if ratio > 0.75: return {"level": "explosion", "score": ratio}
     if ratio < 0.35: return {"level": "compression", "score": 1.0 - ratio}
     return {"level": "normal", "score": 0.5}
@@ -572,7 +551,7 @@ def mine_local_strategies(colors):
     patterns = defaultdict(lambda: {1: 0, 2: 0, "m": 0})
     recency_start = max(0, n - 400)
 
-    for length in range(2, 9):   # até 8 (era 7)
+    for length in range(2, 9):
         for i in range(length - 1, n - 1 - max_g):
             seq = tuple(colors[i - length + 1:i + 1])
             d = patterns[seq]; d["m"] += 1
@@ -590,7 +569,7 @@ def mine_local_strategies(colors):
         for alvo in (1, 2):
             w = d[alvo]
             try:
-                wl = wilson_lower(w, m)   # Wilson em vez de Bayes puro
+                wl = wilson_lower(w, m)
             except Exception as e:
                 log.debug("Minerador: falha wilson_lower para m=%s, w=%s: %s", m, w, e)
                 continue
@@ -622,7 +601,6 @@ def _compute_color_dist(colors):
 
 
 def _compute_transition_matrix(colors):
-    """Calcula P(next | current) para todas as cores incluindo branco."""
     matrix = defaultdict(lambda: defaultdict(int))
     for i in range(len(colors) - 1):
         matrix[colors[i]][colors[i + 1]] += 1
@@ -634,7 +612,6 @@ def _compute_transition_matrix(colors):
 
 
 def _compute_ngram_cache(colors, max_len=6):
-    """Computa n-gramas do DB completo para uso pelos experts."""
     cache = defaultdict(lambda: {1: 0, 2: 0, 0: 0, "total": 0})
     n = len(colors)
     for length in range(2, max_len + 1):
@@ -647,7 +624,6 @@ def _compute_ngram_cache(colors, max_len=6):
 
 
 def _detect_concept_drift(old_dist, new_dist):
-    """KL Divergence simplificada entre distribuições."""
     magnitude = sum(
         abs(new_dist.get(k, 0) - old_dist.get(k, 0)) for k in (0, 1, 2)
     )
@@ -655,7 +631,6 @@ def _detect_concept_drift(old_dist, new_dist):
 
 
 def continual_learner_thread():
-    """Thread que relê o DB completo periodicamente e re-adapta todos os experts."""
     global CL_STATE
     log.info("🧬 Continual Learner iniciado.")
 
@@ -669,7 +644,6 @@ def continual_learner_thread():
             with _cl_lock:
                 last_count = CL_STATE["last_db_count"]
 
-            # Só re-aprende se tiver N novos rounds OU no primeiro boot
             if total_count - last_count >= CL_RELEARN_EVERY or last_count == 0:
                 log.info("🧬 Continual Learner: relendo %d rounds do DB...", total_count)
 
@@ -681,18 +655,13 @@ def continual_learner_thread():
                     time.sleep(15)
                     continue
 
-                # Distribuições por janela
                 dist_full = _compute_color_dist(all_colors)
                 dist_2000 = _compute_color_dist(all_colors[-2000:])
                 dist_500 = _compute_color_dist(all_colors[-500:])
 
-                # Matriz de transição
                 transition = _compute_transition_matrix(all_colors)
-
-                # N-grama cache (DB completo)
                 ngram = _compute_ngram_cache(all_colors, max_len=6)
 
-                # Concept Drift Detection
                 with _cl_lock:
                     old_dist = CL_STATE["color_dist_500"].copy()
 
@@ -705,7 +674,6 @@ def continual_learner_thread():
                         drift_mag
                     )
 
-                # Estatísticas dos experts por regime (lendo prediction_performance)
                 c.execute("""
                     SELECT pp.predicted, pp.actual, pp.correct, pp.expert_used,
                            a.regime
@@ -732,7 +700,6 @@ def continual_learner_thread():
                         expert_stats[exp_key]["wins"] += 1
                         expert_stats[exp_key]["by_regime"][regime_key]["wins"] += 1
 
-                # Salvar snapshot CL no DB
                 conn.execute(
                     """INSERT INTO cl_snapshots
                        (ts, db_count, dist_full, dist_500, dist_2000, drift_mag, expert_stats)
@@ -752,7 +719,6 @@ def continual_learner_thread():
                 )
                 conn.commit()
 
-                # Atualizar estado global
                 with _cl_lock:
                     CL_STATE["last_db_count"] = total_count
                     CL_STATE["color_dist_full"] = dist_full
@@ -802,7 +768,6 @@ def miner_thread():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def expert_miner(colors, regime):
-    """Expert 1: N-grams locais minerados com Wilson Score."""
     best = None
     with _miner_lock:
         for s in GLOBAL_MINED_STRATS:
@@ -824,7 +789,6 @@ def expert_miner(colors, regime):
 
 
 def expert_catalog(colors, regime):
-    """Expert 2: Estratégias do catálogo walk-forward validadas."""
     best = None
     with _catalog_lock:
         for s in GLOBAL_CATALOG_STRATS:
@@ -844,28 +808,24 @@ def expert_catalog(colors, regime):
 
 
 def expert_markov(colors, regime):
-    """Expert 3: Cadeia de Markov ordens 1, 2 e 3 com ensemble interno."""
     nw = [c for c in colors if c != 0]
     if len(nw) < 8:
         return {"vote": None, "confidence": 0.0, "label": "markov:insuf", "key": "markov", "source": "markov"}
 
-    # Ordem 1, 2 e 3
     p1r = markov_prob(nw, 1, 1); p1b = markov_prob(nw, 2, 1)
     p2r = markov_prob(nw, 1, 2); p2b = markov_prob(nw, 2, 2)
     p3r = markov_prob(nw, 1, 3); p3b = markov_prob(nw, 2, 3)
 
-    # Peso maior para ordens mais altas (mais específicas)
     prob_red   = p1r * 0.20 + p2r * 0.40 + p3r * 0.40
     prob_black = p1b * 0.20 + p2b * 0.40 + p3b * 0.40
 
     margin = abs(prob_red - prob_black)
-    if margin < 0.08:   # margem mínima maior (era 0.06)
+    if margin < 0.08:
         return {"vote": None, "confidence": 0.0, "label": f"markov:margem_insuf({margin:.2f})", "key": "markov", "source": "markov"}
 
     vote = 1 if prob_red > prob_black else 2
     conf = max(prob_red, prob_black)
 
-    # Regime bonus apenas em regimes estáveis
     bonus = 1.12 if regime["name"] in ("alternating", "streak_hot", "balanced") else 0.95
     return {
         "vote": vote,
@@ -876,7 +836,6 @@ def expert_markov(colors, regime):
 
 
 def expert_streak(colors, regime):
-    """Expert 4: Reversão/continuação de streak com Bayes profundo."""
     nw = [c for c in colors if c != 0]
     if len(nw) < 8:
         return {"vote": None, "confidence": 0.0, "label": "streak:insuf", "key": "streak", "source": "streak"}
@@ -901,7 +860,7 @@ def expert_streak(colors, regime):
                     break
 
     total = reversals + continuations
-    if total < 5:   # mínimo maior (era 4)
+    if total < 5:
         return {"vote": None, "confidence": 0.0, "label": "streak:dados_insuf", "key": "streak", "source": "streak"}
 
     rev_rate = bayes_prob(reversals, total)
@@ -928,10 +887,8 @@ def expert_streak(colors, regime):
 
 
 def expert_white_cycle(colors, regime):
-    """Expert 5: Ciclo branca — hazard Poisson + padrão pós-branco."""
     wh = poisson_white_hazard(colors)
 
-    # VETO se hazard alto demais
     if wh["hazard"] >= 0.82:
         return {
             "vote": None, "confidence": 0.0,
@@ -967,18 +924,12 @@ def expert_white_cycle(colors, regime):
 
 
 def expert_momentum(colors, regime):
-    """
-    Expert 6 (NOVO): Detecta desvio de distribuição recente vs histórico.
-    Se vermelho apareceu 60% nas últimas 50 rodadas mas a média é 47%, 
-    há uma pressão de retorno à média → favorece preto.
-    """
     dev = distribution_deviation(colors, 50, 600)
     bias = dev["bias"]
 
     if bias is None:
         return {"vote": None, "confidence": 0.0, "label": "momentum:neutro", "key": "momentum", "source": "momentum"}
 
-    # Calcula a força do desvio
     red_dev_abs   = abs(dev["red_dev"])
     black_dev_abs = abs(dev["black_dev"])
     strength      = max(red_dev_abs, black_dev_abs)
@@ -986,10 +937,8 @@ def expert_momentum(colors, regime):
     if strength < 0.07:
         return {"vote": None, "confidence": 0.0, "label": "momentum:desvio_fraco", "key": "momentum", "source": "momentum"}
 
-    # Confiança proporcional à força do desvio (máx 0.82)
     conf = min(0.50 + strength * 2.5, 0.82)
 
-    # Não entra em regime caótico
     if regime["name"] == "chaotic":
         return {"vote": None, "confidence": 0.0, "label": "momentum:caótico_bloqueado", "key": "momentum", "source": "momentum"}
 
@@ -1002,10 +951,6 @@ def expert_momentum(colors, regime):
 
 
 def expert_alternation(colors, regime):
-    """
-    Expert 7 (NOVO): Regime de alta alternância detectado → prediz o oposto
-    da última cor não-branca com boost de confiança.
-    """
     nw = [c for c in colors if c != 0]
     if len(nw) < 10:
         return {"vote": None, "confidence": 0.0, "label": "alt:insuf", "key": "alternation", "source": "alternation"}
@@ -1018,12 +963,10 @@ def expert_alternation(colors, regime):
         return {"vote": None, "confidence": 0.0, "label": f"alt:baixo({alt_avg:.2f})", "key": "alternation", "source": "alternation"}
 
     last = nw[-1]
-    vote = 2 if last == 1 else 1   # prediz o oposto
+    vote = 2 if last == 1 else 1
 
-    # Confiança escalada pela força da alternância
     conf = min(0.52 + alt_avg * 0.38, 0.88)
 
-    # Bônus se o regime também classifica como alternating
     if regime["name"] == "alternating":
         conf = min(conf * 1.12, 0.95)
 
@@ -1036,20 +979,13 @@ def expert_alternation(colors, regime):
 
 
 def expert_volatility(colors, regime):
-    """
-    Expert 8 (NOVO): Detecta compressão de volatilidade.
-    Em compressão (streak dominante), favorece a continuação.
-    Em explosão (puro caos), se abstém.
-    """
     nw  = [c for c in colors if c != 0]
     vol = volatility_score(colors, 30)
 
     if vol["level"] == "explosion":
-        # Alta volatilidade = imprevisível → abstenção
         return {"vote": None, "confidence": 0.0, "label": f"vol:explosão({vol['score']:.2f})", "key": "volatility", "source": "volatility"}
 
     if vol["level"] == "compression" and vol["score"] >= 0.65:
-        # Compressão forte = streak dominante → continua com a cor atual
         if len(nw) < 4:
             return {"vote": None, "confidence": 0.0, "label": "vol:nw_insuf", "key": "volatility", "source": "volatility"}
         strk = streak_info(nw)
@@ -1066,12 +1002,6 @@ def expert_volatility(colors, regime):
 
 
 def expert_antidrift(colors, regime):
-    """
-    Expert 9 (NOVO): Analisa se o sistema está em estado de deriva
-    (taxa de acerto recente muito baixa no banco de dados) e VETA entradas.
-    Também detecta sequências que historicamente precedem brancas.
-    """
-    # Verifica performance recente do próprio sistema no banco
     try:
         conn = _conn(); c = conn.cursor()
         c.execute("""
@@ -1089,11 +1019,9 @@ def expert_antidrift(colors, regime):
                     "key": "antidrift_veto", "source": "antidrift", "veto": True,
                 }
             if recent_acc >= 0.60:
-                # Sistema quente → leve boost (não vota, apenas sinaliza)
                 return {"vote": None, "confidence": 0.0, "label": f"antidrift:quente({recent_acc:.0%})", "key": "antidrift", "source": "antidrift", "hot": True, "hot_bonus": 0.05}
     except: pass
 
-    # Detecta padrão pré-branca: muitos rounds sem branca + distribuição comprimida
     wh = poisson_white_hazard(colors)
     if wh["dist"] >= 22 and wh["hazard"] >= 0.85:
         return {
@@ -1110,21 +1038,20 @@ def expert_antidrift(colors, regime):
 # ═══════════════════════════════════════════════════════════════════════════════
 def run_ensemble(colors, regime, last_round=None):
     results = [
-        expert_miner(colors, regime),        # 1
-        expert_catalog(colors, regime),      # 2
-        expert_markov(colors, regime),       # 3
-        expert_streak(colors, regime),       # 4
-        expert_white_cycle(colors, regime),  # 5
-        expert_momentum(colors, regime),     # 6
-        expert_alternation(colors, regime),  # 7
-        expert_volatility(colors, regime),   # 8
-        expert_antidrift(colors, regime),    # 9
-        expert_sybil(colors, regime),        # 10 — NOVO
-        expert_chaos(colors, regime),        # 11 — NOVO
-        expert_hermes(colors, regime),       # 12 — NOVO
+        expert_miner(colors, regime),
+        expert_catalog(colors, regime),
+        expert_markov(colors, regime),
+        expert_streak(colors, regime),
+        expert_white_cycle(colors, regime),
+        expert_momentum(colors, regime),
+        expert_alternation(colors, regime),
+        expert_volatility(colors, regime),
+        expert_antidrift(colors, regime),
+        expert_sybil(colors, regime),
+        expert_chaos(colors, regime),
+        expert_hermes(colors, regime),
     ]
 
-    # ── FASE 1: Processar VETOs ─────────────────────────────────────────────
     for m in results:
         if m.get("veto"):
             return {
@@ -1133,14 +1060,11 @@ def run_ensemble(colors, regime, last_round=None):
                 "kelly": 0.0, "vote_count": 0,
             }
 
-    # ── FASE 2: Detectar hot_bonus do AntiDrift ─────────────────────────────
     hot_bonus = sum(m.get("hot_bonus", 0.0) for m in results)
 
-    # ── FASE 3: Votação ponderada pelos pesos neurais ───────────────────────
-    neural_weights_base  = get_neural_weights()           # pesos aprendidos por gradiente
-    oracle_weights       = oracle_get_weights(colors, regime)  # pesos aprendidos por RL
+    neural_weights_base  = get_neural_weights()
+    oracle_weights       = oracle_get_weights(colors, regime)
 
-    # Combina: base * oracle (multiplicativo = ambos precisam concordar)
     neural_weights = {
         k: round(neural_weights_base.get(k, 1.0) * oracle_weights.get(k, 1.0), 3)
         for k in set(list(neural_weights_base.keys()) + list(oracle_weights.keys()))
@@ -1177,36 +1101,26 @@ def run_ensemble(colors, regime, last_round=None):
     votes_win  = vote_counts[winner]
     votes_lose = vote_counts[loser]
 
-    # ── FASE 4: Cálculo de confiança com calibração ─────────────────────────
-    # Soma pesos dos vencedores
     win_weight_sum = sum(
         neural_weights.get(m["source"], 1.0)
         for m in active_votes if m["vote"] == winner
     )
     raw_conf = scores[winner] / max(win_weight_sum, 1.0)
 
-    # Penalidade por oposição
     if votes_lose >= 2: raw_conf -= 0.10
     if votes_lose >= 3: raw_conf -= 0.08
-
-    # Bônus por consenso total
     if votes_lose == 0 and votes_win >= 3: raw_conf += 0.08
-
-    # Hot bonus do antidrift
     raw_conf += hot_bonus
 
-    # Calibração final (shrinkage)
     cal_conf = calibrate_confidence(raw_conf, votes_win, NUM_EXPERTS)
     cal_conf = round(max(0.0, min(cal_conf, 0.97)), 4)
 
-    # ── FASE 5: Critérios de entrada (mais rígidos) ─────────────────────────
     with _threshold_lock:
         threshold    = _threshold_state["value"]
         lockdown_until = _threshold_state["lockdown_until"]
         total_rounds = _threshold_state["total_rounds_seen"]
         banca_level  = _threshold_state["banca_level"]
 
-    # Bloqueia em lockdown
     if total_rounds < lockdown_until:
         remaining = lockdown_until - total_rounds
         return {
@@ -1216,7 +1130,6 @@ def run_ensemble(colors, regime, last_round=None):
             "kelly": 0.0, "vote_count": votes_win,
         }
 
-    # Threshold adaptativo + mínimo de votes
     if cal_conf < threshold or votes_win < MIN_VOTES_TO_ENTER:
         parts = []
         if cal_conf < threshold: parts.append(f"edge {cal_conf:.0%} < thr {threshold:.0%}")
@@ -1229,7 +1142,6 @@ def run_ensemble(colors, regime, last_round=None):
             "kelly": 0.0, "vote_count": votes_win,
         }
 
-    # ── FASE 6: Sinal de entrada ─────────────────────────────────────────────
     alvo_label   = "VERMELHO 🔴" if winner == 1 else "PRETO ⚫"
     contributing = [m["label"] for m in active_votes if m["vote"] == winner]
     kelly_val    = kelly_fraction(cal_conf)
@@ -1310,7 +1222,6 @@ def update_threshold(won):
             _threshold_state["consecutive_wins"]   += 1
             _threshold_state["recovery_wins"]      += 1
 
-            # Saída do lockdown após recuperação
             if level in ("LOCKDOWN", "ALERT"):
                 if _threshold_state["recovery_wins"] >= BANCA_RECOVERY_WINS:
                     _threshold_state["banca_level"]    = "NORMAL"
@@ -1326,14 +1237,12 @@ def update_threshold(won):
             _threshold_state["consecutive_losses"] += 1
             losses = _threshold_state["consecutive_losses"]
 
-            # LOCKDOWN: 5+ perdas seguidas
             if losses >= BANCA_ALERT_LOSSES and level != "LOCKDOWN":
                 mute_end = _threshold_state["total_rounds_seen"] + BANCA_LOCKDOWN_ROUNDS
                 _threshold_state["lockdown_until"] = mute_end
                 _threshold_state["banca_level"]    = "LOCKDOWN"
                 log.warning("🔒 LOCKDOWN ATIVADO! %d derrotas. Silêncio de %d rounds.", losses, BANCA_LOCKDOWN_ROUNDS)
 
-            # ALERT: 3+ perdas seguidas
             elif losses >= BANCA_NORMAL_LOSSES and level == "NORMAL":
                 mute_end = _threshold_state["total_rounds_seen"] + BANCA_ALERT_ROUNDS
                 _threshold_state["lockdown_until"] = mute_end
@@ -1402,8 +1311,7 @@ def run_engine(seq):
 
     with _threshold_lock:
         banca_level = _threshold_state["banca_level"]
-    # ── Campos Pantheon para o dashboard ──────────────────────────────────
-    # Recalcula pesos neurais combinando pesos locais e oracle (mesma lógica do ensemble)
+
     neural_weights_base = get_neural_weights()
     oracle_w = oracle_get_weights(colors, regime)
     neural_weights = {
@@ -1411,7 +1319,6 @@ def run_engine(seq):
         for k in set(list(neural_weights_base.keys()) + list(oracle_w.keys()))
     }
 
-    # D-S simples: calcula a massa a partir dos votos ativos ponderados
     votes_all = result.get("votes", [])
     votes_ativos = [v for v in votes_all if v.get("vote") is not None]
     total_w = sum(neural_weights.get(v.get("source"), 1.0) * float(v.get("confidence", 0) or 0) for v in votes_ativos) or 1.0
@@ -1450,7 +1357,6 @@ def run_engine(seq):
             "catalog_count": len(GLOBAL_CATALOG_STRATS),
             "votes_json": json.dumps(votes_summary, ensure_ascii=False),
             "banca_level": banca_level,
-            # ── Pantheon fields ───────────────────────────────────────────
             "ds_conflict": ds_conflict,
             "ds_mass_red": m_red,
             "ds_mass_black": m_black,
@@ -1468,7 +1374,6 @@ def save_snapshot(seq, engine_result):
     reg = engine_result["regime"]; wh = engine_result["tests"]["white"]
     feat= engine_result["features"]
 
-    # Enriquecer features com campos Pantheon antes de persistir
     try:
         feat["micro_regime"]    = engine_result.get("micro_regime", feat.get("regime_name", feat.get("micro_regime", "")))
     except Exception:
@@ -1479,8 +1384,8 @@ def save_snapshot(seq, engine_result):
     feat["ds_mass_unc"]     = round(engine_result.get("ds_mass_unc", feat.get("ds_mass_unc", 0)), 4)
     feat["oracle_weights"]  = engine_result.get("oracle_weights", feat.get("oracle_weights", {}))
     feat["oracle_q_states"] = engine_result.get("oracle_q_states", feat.get("oracle_q_states", 0))
-    feat["banca_level"]     = engine_result.get("banca_level", feat.get("banca_level", feat.get("banca_level", "NORMAL")))
-    feat["vote_count"]      = engine_result.get("vote_count", feat.get("vote_count", feat.get("vote_count", 0)))
+    feat["banca_level"]     = engine_result.get("banca_level", feat.get("banca_level", "NORMAL"))
+    feat["vote_count"]      = engine_result.get("vote_count", feat.get("vote_count", 0))
     feat["votes_json"]      = json.dumps(
         [
             {
@@ -1550,7 +1455,9 @@ def validate_previous(current_color, current_round_id):
         if not pred_db or not curr_db: return
 
         gap = curr_db[0] - pred_db[0]
-        if not (1 <= gap <= max(2, get_max_gales() + 1)): return
+        # ✅ FIX: gap aumentado de max(2,...) para max(15,...) para capturar
+        # rounds intermediários (wait/block) entre sinal e resultado real
+        if not (1 <= gap <= max(15, get_max_gales() + 2)): return
 
         if current_color == 0:
             correct = 1; action_res = "empate_branco"; won = True
@@ -1584,7 +1491,6 @@ def validate_previous(current_color, current_round_id):
                     if src:
                         module_votes[src] = {"vote": v.get("vote"), "confidence": v.get("conf", 0.5)}
 
-                # CORREÇÃO: passa actual_color E won (não inverte mais)
                 seq = load_sequence(5000)
                 if seq:
                     colors = [r["color"] for r in seq]
@@ -1645,7 +1551,6 @@ def check_pending_gale(seq):
             colors = [r["color"] for r in seq]
             regime = detect_regime(colors)
 
-            # BLOQUEIO: se regime mudou drasticamente, ABORTA o gale
             new_regime = regime["name"]
             if new_regime in ("chaotic", "white_zone"):
                 log.warning("🛡️ GALE %d ABORTADO — regime mudou para %s", gale_step+1, new_regime)
@@ -1705,13 +1610,29 @@ def run_analysis_cycle():
             "probs": {"red": 0.5, "black": 0.5, "white": 0.0},
             "regime": {"regime": regime["name"], "label": regime["label"], "strength": regime["strength"]},
             "tests":  {"white": wh},
+            "votes": [],
+            "oracle_weights": {},
+            "oracle_q_states": len(_oracle_state.get("q_table", {})),
+            "ds_conflict": 0.0,
+            "ds_mass_red": 0.0,
+            "ds_mass_black": 0.0,
+            "ds_mass_unc": 1.0,
             "features": {
                 "llm_status": "", "llm_model": "", "kelly_pct": gale_sig["kelly"],
                 "vote_count": 0, "ensemble_modules": NUM_EXPERTS,
                 "threshold_used": _threshold_state["value"],
-                "regime_name": regime["name"], "miner_count": len(GLOBAL_MINED_STRATS),
-                "catalog_count": len(GLOBAL_CATALOG_STRATS), "votes_json": "[]",
+                "regime_name": regime["name"],
+                "micro_regime": regime["name"],
+                "miner_count": len(GLOBAL_MINED_STRATS),
+                "catalog_count": len(GLOBAL_CATALOG_STRATS),
+                "votes_json": "[]",
                 "banca_level": banca_level,
+                "oracle_q_states": len(_oracle_state.get("q_table", {})),
+                "oracle_weights": {},
+                "ds_conflict": 0.0,
+                "ds_mass_red": 0.0,
+                "ds_mass_black": 0.0,
+                "ds_mass_unc": 1.0,
             },
         }
     else:
@@ -1728,11 +1649,12 @@ def run_analysis_cycle():
         cn(s["color"]), s["confidence"]*100, s["kelly"],
     )
     log.info(
-        "Banca=%s | Threshold=%.2f%% | Experts=%d/%d | Miner=%d | Catálogo=%d | LLM=%s",
+        "Banca=%s | Threshold=%.2f%% | Experts=%d/%d | Miner=%d | Catálogo=%d | LLM=%s | Q-States=%d",
         feat.get("banca_level","?"), feat.get("threshold_used",0)*100,
         feat.get("vote_count",0), NUM_EXPERTS,
         feat.get("miner_count",0), feat.get("catalog_count",0),
         feat.get("llm_status","-"),
+        feat.get("oracle_q_states", 0),
     )
     log.info("Fundamento: %s", s["reason"])
     log.info("═" * 95)
