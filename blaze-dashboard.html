@@ -668,7 +668,7 @@ function renderSys(feat, sc) {
   $("clDrift").className   = "cl-val "+(d?"drift":"ok");
   $("clRL").textContent    = feat.cl_last_relearn || "–";
 
-  const lev = (sc&&(sc.pantheon_v3||sc.leviathan_v2||sc.moe_v2||sc.leviathan||sc.intelligent))||{};
+  const lev = (sc&&(sc.leviathan_v2||sc.pantheon_v3||sc.leviathan||sc.moe_v2||sc.intelligent))||{};
   const wins = lev.wins||0;
   const losses = lev.losses||0;
   const tot = wins + losses;

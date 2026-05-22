@@ -223,9 +223,10 @@ def get_scoreboard():
         try:
             c = conn.cursor()
             scores = {
-                "leviathan": {"wins": 0, "losses": 0, "ties": 0},
-                "intelligent": {"wins": 0, "losses": 0, "ties": 0},
-                "standard":    {"wins": 0, "losses": 0, "ties": 0},
+                "leviathan":    {"wins": 0, "losses": 0, "ties": 0},
+                "leviathan_v2": {"wins": 0, "losses": 0, "ties": 0},
+                "intelligent":  {"wins": 0, "losses": 0, "ties": 0},
+                "standard":     {"wins": 0, "losses": 0, "ties": 0},
             }
             c.execute("SELECT value FROM system_config WHERE key='stats_reset_at'")
             row = c.fetchone(); reset_ts = row[0] if row else None
@@ -241,17 +242,18 @@ def get_scoreboard():
                 c.execute(q.format(""))
 
             for mode, action, count in c.fetchall():
+                # ✅ aceita leviathan_v2 diretamente
                 m = mode if mode in scores else "leviathan"
-                if action == "win":          scores[m]["wins"]   = count
-                elif action == "loss":       scores[m]["losses"] = count
-                elif action == "empate_branco": scores[m]["ties"] = count
+                if action == "win":             scores[m]["wins"]   = count
+                elif action == "loss":          scores[m]["losses"] = count
+                elif action == "empate_branco": scores[m]["ties"]   = count
 
             for m in scores:
                 total = scores[m]["wins"] + scores[m]["losses"]
                 scores[m]["win_rate"] = round(scores[m]["wins"] / total * 100, 1) if total else 0.0
             return scores
         except Exception:
-            return {"leviathan": {"wins":0,"losses":0,"ties":0,"win_rate":0.0}}
+            return {"leviathan_v2": {"wins":0,"losses":0,"ties":0,"win_rate":0.0}}
         finally:
             conn.close()
 

@@ -226,7 +226,7 @@ def update_neural_weights(module_votes: dict, actual_color: int, won: bool, colo
         set_sys_config("neural_weights_v2", json.dumps(weights))
         if colors is not None and regime is not None:
             oracle_learn(won, colors, regime)
-            if _oracle_state["total_updates"] % 20 == 0:
+            if _oracle_state["total_updates"] % 3 == 0:
                 oracle_save_state()
         log.info("🧠 Pesos v2: %s", {k: v for k, v in weights.items()})
 
@@ -1341,7 +1341,7 @@ def run_engine(seq):
         "tests":  {"white": wh},
         "votes": result.get("votes", []),
         "oracle_weights": oracle_w,
-        "oracle_q_states": len(_oracle_state.get("q_table", {})),
+        "oracle_q_states": len(set(k[0] for k in _oracle_state.get("q_table", {}).keys())) if _oracle_state.get("q_table") else 0,
         "ds_conflict": ds_conflict,
         "ds_mass_red": m_red,
         "ds_mass_black": m_black,
@@ -1362,7 +1362,7 @@ def run_engine(seq):
             "ds_mass_black": m_black,
             "ds_mass_unc": m_unc,
             "oracle_weights": oracle_w,
-            "oracle_q_states": len(_oracle_state.get("q_table", {})),
+            "oracle_q_states": len(set(k[0] for k in _oracle_state.get("q_table", {}).keys())) if _oracle_state.get("q_table") else 0,
         },
     }
 
@@ -1454,10 +1454,10 @@ def validate_previous(current_color, current_round_id):
         curr_db = c.fetchone()
         if not pred_db or not curr_db: return
 
+        # ✅ FIX 1 — gap agora está definido
         gap = curr_db[0] - pred_db[0]
-        # ✅ FIX: gap aumentado de max(2,...) para max(15,...) para capturar
-        # rounds intermediários (wait/block) entre sinal e resultado real
-        if not (1 <= gap <= max(15, get_max_gales() + 2)): return
+        max_gap = max(30, get_max_gales() * 3 + 5)
+        if not (1 <= gap <= max_gap): return
 
         if current_color == 0:
             correct = 1; action_res = "empate_branco"; won = True
@@ -1503,6 +1503,13 @@ def validate_previous(current_color, current_round_id):
                         regime,
                     )
             except: pass
+
+            # ✅ FIX 2 — indentação correta (fora do except, dentro do if)
+            oracle_save_state()
+            log.info("🧠 Oracle salvo — total_updates=%d q_states=%d",
+                _oracle_state.get("total_updates", 0),
+                len(set(k[0] for k in _oracle_state.get("q_table", {}).keys()))
+            )
 
             with _threshold_lock:
                 level = _threshold_state["banca_level"]
@@ -1612,7 +1619,7 @@ def run_analysis_cycle():
             "tests":  {"white": wh},
             "votes": [],
             "oracle_weights": {},
-            "oracle_q_states": len(_oracle_state.get("q_table", {})),
+            "oracle_q_states": len(set(k[0] for k in _oracle_state.get("q_table", {}).keys())) if _oracle_state.get("q_table") else 0,
             "ds_conflict": 0.0,
             "ds_mass_red": 0.0,
             "ds_mass_black": 0.0,
@@ -1627,7 +1634,7 @@ def run_analysis_cycle():
                 "catalog_count": len(GLOBAL_CATALOG_STRATS),
                 "votes_json": "[]",
                 "banca_level": banca_level,
-                "oracle_q_states": len(_oracle_state.get("q_table", {})),
+                "oracle_q_states": len(set(k[0] for k in _oracle_state.get("q_table", {}).keys())) if _oracle_state.get("q_table") else 0,
                 "oracle_weights": {},
                 "ds_conflict": 0.0,
                 "ds_mass_red": 0.0,
