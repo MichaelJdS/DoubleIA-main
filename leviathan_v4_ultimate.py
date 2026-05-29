@@ -57,8 +57,29 @@ class LeviathanV4Ultimate:
         
     def _train_base_experts(self, data):
         """Treina 14 experts especializados"""
-        features = self._extract_features(data)
-        target = (data['result'] > 2.0).astype(int) # Simplificação para exemplo
+        # Converte DataFrame em lista de dicts para _extract_features_mtf
+        history_list = data[['value', 'color']].rename(
+            columns={'color': 'color'}).to_dict('records')
+        # Garante que 'color' seja string
+        _cmap = {0: 'white', 1: 'red', 2: 'black'}
+        for r in history_list:
+            if isinstance(r.get('color'), (int, float, np.integer)):
+                r['color'] = _cmap.get(int(r['color']), 'red')
+
+        # Extrai features para cada janela de 20 rodadas
+        X, y = [], []
+        window = 20
+        for i in range(window, len(history_list)):
+            feat = self._extract_features_mtf(history_list[max(0, i-50):i])
+            X.append(feat.flatten())
+            # Target: 1 = vermelho, 0 = não-vermelho
+            y.append(1 if history_list[i].get('color') == 'red' else 0)
+
+        if len(X) < 10:
+            return  # Dados insuficientes
+
+        X = np.array(X)
+        target = np.array(y)
         
         # Expert 1-5: Clássicos Estatísticos
         self.experts['stat_gaussian'] = LogisticRegression(max_iter=1000)
@@ -73,12 +94,12 @@ class LeviathanV4Ultimate:
         self.experts['regime_momentum'] = LogisticRegression()
         self.experts['regime_mean_rev'] = LogisticRegression()
         
-        # Treinamento simplificado (em produção usar CV)
+        # Treinamento com X e target construidos acima
         for name, model in self.experts.items():
             try:
-                model.fit(features, target)
-            except:
-                pass # Fallback se dados insuficientes
+                model.fit(X, target)
+            except Exception:
+                pass  # Fallback se dados insuficientes
 
     def _train_meta_learner(self, data):
         """Treina o Meta-Learner para combinar predictions dos experts"""
@@ -89,14 +110,17 @@ class LeviathanV4Ultimate:
         
     def _calibrate_models(self, data):
         """Aplica Isotonic Regression para calibrar confiança"""
-        self.calibrator = CalibratedClassifierCV(base_estimator=RandomForestClassifier(), 
+        self.calibrator = CalibratedClassifierCV(estimator=RandomForestClassifier(),
                                                  method='isotonic', cv=5)
         # Treinamento de calibração seria feito aqui
 
     def _mine_deep_patterns(self, data):
-        """Extrai padrões complexos de até N rodadas"""
-        # Implementação de fuzzy matching de sequências
-        seqs = data['color'].rolling(window=self.deep_search_depth).apply(lambda x: tuple(x))
+        """Extrai padroes complexos de ate N rodadas"""
+        # Garante que color e string antes do rolling
+        color_series = data['color'].astype(str)
+        seqs = color_series.rolling(window=self.deep_search_depth).apply(
+            lambda x: hash(tuple(x)), raw=True
+        )
         self.pattern_db = seqs.value_counts().to_dict()
 
     def analyze(self, current_history):
@@ -159,20 +183,22 @@ class LeviathanV4Ultimate:
         }
 
     def _extract_features_mtf(self, history):
-        """Extrai features de múltiplos timeframes"""
+        """Extrai features de multiplos timeframes — vetor FIXO de 9 valores."""
         df = pd.DataFrame(history)
+        vals = df['value'].values if 'value' in df.columns else np.array([0.0])
         features = []
-        
-        # Timeframes
+
+        # 4 janelas x 2 stats = 8 features fixas (preenche 0.0 se dados insuficientes)
         for window in [5, 10, 20, 50]:
-            if len(df) >= window:
-                features.append(df['value'].tail(window).mean())
-                features.append(df['value'].tail(window).std())
-        
-        # Hurst Exponent (Simplificado)
-        features.append(self._calculate_hurst(df['value'].values))
-        
-        return np.array(features).reshape(1, -1)
+            tail = vals[-window:] if len(vals) >= window else vals
+            features.append(float(np.mean(tail)) if len(tail) > 0 else 0.0)
+            features.append(float(np.std(tail))  if len(tail) > 1 else 0.0)
+
+        # 1 feature: Hurst Exponent
+        features.append(self._calculate_hurst(vals))
+
+        # Sempre retorna shape (1, 9)
+        return np.array(features, dtype=float).reshape(1, -1)
 
     def _calculate_hurst(self, series):
         """Calcula Expoente de Hurst para detecção de tendência"""
